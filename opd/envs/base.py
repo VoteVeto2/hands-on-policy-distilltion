@@ -73,7 +73,7 @@ def call_tool(tools: dict[str, Callable[..., str]], call: chat.ToolCall) -> str:
 
 
 def grade(completion: str, answer: str) -> float:
-  """1.0 if the last `\\boxed{}` of the final turn matches `answer`, else 0.0."""
+  """1.0 if the final turn's last `\\boxed{}` matches `answer`, else 0.0."""
   prediction = chat.extract_boxed(chat.strip_thinking(completion))
   if prediction is None:
     return 0.0

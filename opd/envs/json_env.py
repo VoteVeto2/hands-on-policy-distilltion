@@ -13,13 +13,35 @@ import jmespath
 
 from opd.envs import base
 
-_ADJECTIVES = ("Oak", "Steel", "Linen", "Copper", "Maple", "Glass", "Velvet", "Bamboo")
+_ADJECTIVES = (
+    "Oak",
+    "Steel",
+    "Linen",
+    "Copper",
+    "Maple",
+    "Glass",
+    "Velvet",
+    "Bamboo",
+)
 _NOUNS = ("Desk", "Lamp", "Chair", "Kettle", "Shelf", "Planter", "Rug", "Clock")
 _CATEGORIES = ("furniture", "lighting", "kitchen", "garden", "decor")
 _TAGS = ("eco", "bestseller", "new", "sale", "handmade", "premium")
 _COUNTRIES = ("Germany", "Japan", "Brazil", "Canada", "Kenya", "Vietnam")
 _SUPPLIERS = ("Northwind", "Acme", "Globex", "Initech", "Umbrella", "Stark")
-_CUSTOMERS = ("Avery", "Blake", "Casey", "Devon", "Emery", "Finley", "Harper", "Jordan", "Kai", "Logan", "Morgan", "Rowan")
+_CUSTOMERS = (
+    "Avery",
+    "Blake",
+    "Casey",
+    "Devon",
+    "Emery",
+    "Finley",
+    "Harper",
+    "Jordan",
+    "Kai",
+    "Logan",
+    "Morgan",
+    "Rowan",
+)
 _CITIES = ("Lisbon", "Seoul", "Denver", "Lagos", "Oslo", "Lima")
 _NUM_PRODUCTS = 16
 _NUM_CUSTOMERS = 10
@@ -33,7 +55,9 @@ def build_document(seed: int) -> dict[str, Any]:
   suppliers = [
       {"name": name, "country": rng.choice(_COUNTRIES)} for name in _SUPPLIERS
   ]
-  names = rng.sample([f"{a} {n}" for a in _ADJECTIVES for n in _NOUNS], _NUM_PRODUCTS)
+  names = rng.sample(
+      [f"{a} {n}" for a in _ADJECTIVES for n in _NOUNS], _NUM_PRODUCTS
+  )
   products = [
       {
           "id": f"P{i:02d}",
@@ -47,7 +71,12 @@ def build_document(seed: int) -> dict[str, Any]:
       for i, name in enumerate(names, start=1)
   ]
   customers = [
-      {"id": f"C{i:02d}", "name": name, "city": rng.choice(_CITIES), "tier": rng.choice(("gold", "silver", "basic"))}
+      {
+          "id": f"C{i:02d}",
+          "name": name,
+          "city": rng.choice(_CITIES),
+          "tier": rng.choice(("gold", "silver", "basic")),
+      }
       for i, name in enumerate(rng.sample(_CUSTOMERS, _NUM_CUSTOMERS), start=1)
   ]
   orders = [
@@ -99,9 +128,14 @@ def sample_question(rng: random.Random, doc: dict[str, Any]) -> tuple[str, str]:
   category = rng.choice(products)["category"]
   country = rng.choice(products)["supplier"]["country"]
   tag = rng.choice(rng.choice(products)["tags"])
-  customer = next(c for c in doc["customers"] if c["id"] == order["customer_id"])
+  customer = next(
+      c for c in doc["customers"] if c["id"] == order["customer_id"]
+  )
   choices = (
-      (f"What is the price of the product named '{product['name']}'?", product["price"]),
+      (
+          f"What is the price of the product named '{product['name']}'?",
+          product["price"],
+      ),
       (
           f"How many products are in the '{category}' category?",
           sum(p["category"] == category for p in products),
@@ -109,7 +143,11 @@ def sample_question(rng: random.Random, doc: dict[str, Any]) -> tuple[str, str]:
       (
           "What is the total stock of all products whose supplier is based"
           f" in {country}?",
-          sum(p["stock"] for p in products if p["supplier"]["country"] == country),
+          sum(
+              p["stock"]
+              for p in products
+              if p["supplier"]["country"] == country
+          ),
       ),
       (
           f"What is the name of the customer who placed order {order['id']}?",
@@ -132,7 +170,12 @@ def sample_task(rng: random.Random, split: str) -> base.Task:
   del split  # Procedural tasks: train and eval differ only in the rng seed.
   doc_seed = rng.randrange(2**31)
   question, answer = sample_question(rng, build_document(doc_seed))
-  return {"question": question, "answer": answer, "kind": "json", "doc_seed": doc_seed}
+  return {
+      "question": question,
+      "answer": answer,
+      "kind": "json",
+      "doc_seed": doc_seed,
+  }
 
 
 SPEC = base.EnvSpec(JsonEnv, sample_task)

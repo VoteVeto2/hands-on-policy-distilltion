@@ -34,12 +34,16 @@ class ToolCall:
   arguments: dict[str, Any]
 
 
-def stop_token_ids(tokenizer: transformers.PreTrainedTokenizerBase) -> list[int]:
+def stop_token_ids(
+    tokenizer: transformers.PreTrainedTokenizerBase,
+) -> list[int]:
   """Token ids that end an assistant turn."""
-  return sorted({
-      tokenizer.convert_tokens_to_ids("<|im_end|>"),
-      tokenizer.convert_tokens_to_ids("<|endoftext|>"),
-  })
+  return sorted(
+      {
+          tokenizer.convert_tokens_to_ids("<|im_end|>"),
+          tokenizer.convert_tokens_to_ids("<|endoftext|>"),
+      }
+  )
 
 
 def encode_prompt(

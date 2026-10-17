@@ -55,7 +55,9 @@ class LossesTest(absltest.TestCase):
         advantages, torch.tensor([0.5, -0.5, 0.0, 0.0, -0.25, 0.25])
     )
     advantages = losses.group_advantages(rewards, groups, normalize_std=True)
-    self.assertAlmostEqual(advantages[0].item(), 0.5 / (0.5**0.5 + 1e-4), places=5)
+    self.assertAlmostEqual(
+        advantages[0].item(), 0.5 / (0.5**0.5 + 1e-4), places=5
+    )
     self.assertEqual(advantages[2].item(), 0.0)
 
   def test_clipping(self):

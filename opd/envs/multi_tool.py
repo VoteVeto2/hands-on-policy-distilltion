@@ -78,11 +78,13 @@ def _no_tool(
 ) -> tuple[str, str]:
   del db, doc
   a, b = rng.randint(2, 12), rng.randint(2, 12)
-  return rng.choice((
-      (f"What is {a} + {b}?", str(a + b)),
-      (f"What is {a} times {b}?", str(a * b)),
-      (f"How many days are there in {a} weeks?", str(7 * a)),
-  ))
+  return rng.choice(
+      (
+          (f"What is {a} + {b}?", str(a + b)),
+          (f"What is {a} times {b}?", str(a * b)),
+          (f"How many days are there in {a} weeks?", str(7 * a)),
+      )
+  )
 
 
 _KINDS = {

@@ -140,7 +140,10 @@ def sample_episodes(
       env.reset(**task)
       tools = base.get_tools(env)
       prompt_ids = chat.encode_prompt(
-          tokenizer, task["question"], list(tools.values()), config.enable_thinking
+          tokenizer,
+          task["question"],
+          list(tools.values()),
+          config.enable_thinking,
       )
       episodes.append(Episode(task=task, group=group, prompt_ids=prompt_ids))
       envs.append(tools)
@@ -198,18 +201,27 @@ def _step(
     episode.truncated = episode.done = True
     return
   results = [base.call_tool(tools, call) for call in calls]
-  results += ["Error: malformed <tool_call>; expected JSON with name and arguments."] * num_malformed
+  results += [
+      "Error: malformed <tool_call>; expected JSON with name and arguments."
+  ] * num_malformed
   episode.num_tool_calls += len(calls) + num_malformed
   episode.num_tool_errors += sum(r.startswith("Error:") for r in results)
-  result_ids = chat.encode_tool_results(tokenizer, results, config.enable_thinking)
-  if len(episode.completion_ids) + len(result_ids) >= config.max_completion_tokens:
+  result_ids = chat.encode_tool_results(
+      tokenizer, results, config.enable_thinking
+  )
+  if (
+      len(episode.completion_ids) + len(result_ids)
+      >= config.max_completion_tokens
+  ):
     episode.truncated = episode.done = True
     return
   episode.completion_ids += result_ids
   episode.action_mask += [0] * len(result_ids)
 
 
-def render(episode: Episode, tokenizer: transformers.PreTrainedTokenizerBase) -> str:
+def render(
+    episode: Episode, tokenizer: transformers.PreTrainedTokenizerBase
+) -> str:
   """Decodes an episode, wrapping environment tokens in [env]...[/env]."""
   pieces, start = [], 0
   mask = episode.action_mask

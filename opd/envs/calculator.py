@@ -77,12 +77,20 @@ class CalculatorEnv(base.Env):
 
 
 def _product_minus(rng: random.Random) -> tuple[str, int]:
-  a, b, c = rng.randint(1000, 99999), rng.randint(100, 9999), rng.randint(1000, 99999)
+  a, b, c = (
+      rng.randint(1000, 99999),
+      rng.randint(100, 9999),
+      rng.randint(1000, 99999),
+  )
   return f"Compute {a} * {b} - {c}.", a * b - c
 
 
 def _factory(rng: random.Random) -> tuple[str, int]:
-  rate, bad, days = rng.randint(1200, 9800), rng.randint(10, 300), rng.randint(12, 365)
+  rate, bad, days = (
+      rng.randint(1200, 9800),
+      rng.randint(10, 300),
+      rng.randint(12, 365),
+  )
   question = (
       f"A factory makes {rate} widgets per day, and {bad} of them are"
       f" defective and thrown away. How many good widgets does it make in"

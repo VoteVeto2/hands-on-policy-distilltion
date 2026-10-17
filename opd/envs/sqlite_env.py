@@ -9,7 +9,14 @@ import sqlite3
 
 from opd.envs import base
 
-DEPARTMENTS = ("Engineering", "Sales", "Marketing", "Finance", "Support", "Research")
+DEPARTMENTS = (
+    "Engineering",
+    "Sales",
+    "Marketing",
+    "Finance",
+    "Support",
+    "Research",
+)
 CITIES = ("Berlin", "Tokyo", "Austin", "Toronto", "Paris", "Sydney")
 _STATUSES = ("active", "completed", "paused")
 _FIRST_NAMES = (
@@ -56,7 +63,8 @@ _QUESTIONS = (
     ),
     (
         "How many employees based in {city} were hired after {year}?",
-        "SELECT COUNT(*) FROM employees WHERE city = :city AND hire_year > :year",
+        "SELECT COUNT(*) FROM employees"
+        " WHERE city = :city AND hire_year > :year",
     ),
     (
         "What is the total budget of the {status} projects run by the"
@@ -150,7 +158,9 @@ class SqliteEnv(base.Env):
     return run_query(self._db, sql)
 
 
-def sample_question(rng: random.Random, db: sqlite3.Connection) -> tuple[str, str]:
+def sample_question(
+    rng: random.Random, db: sqlite3.Connection
+) -> tuple[str, str]:
   """Returns a (question, answer) pair whose answer exists in `db`."""
   while True:
     template, sql = rng.choice(_QUESTIONS)
@@ -169,7 +179,12 @@ def sample_task(rng: random.Random, split: str) -> base.Task:
   del split  # Procedural tasks: train and eval differ only in the rng seed.
   db_seed = rng.randrange(2**31)
   question, answer = sample_question(rng, build_database(db_seed))
-  return {"question": question, "answer": answer, "kind": "sql", "db_seed": db_seed}
+  return {
+      "question": question,
+      "answer": answer,
+      "kind": "sql",
+      "db_seed": db_seed,
+  }
 
 
 SPEC = base.EnvSpec(SqliteEnv, sample_task)

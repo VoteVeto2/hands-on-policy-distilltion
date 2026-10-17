@@ -57,20 +57,26 @@ class ParseTest(absltest.TestCase):
     text = (
         'I will compute. <tool_call>\n{"name": "calculator", "arguments":'
         ' {"expression": "2*3"}}\n</tool_call>'
-        "<tool_call>not json</tool_call><tool_call>{\"name\": 1}</tool_call>"
+        '<tool_call>not json</tool_call><tool_call>{"name": 1}</tool_call>'
         "<tool_call>{unclosed"
     )
     calls, num_malformed = chat.parse_tool_calls(text)
-    self.assertEqual(calls, [chat.ToolCall("calculator", {"expression": "2*3"})])
+    self.assertEqual(
+        calls, [chat.ToolCall("calculator", {"expression": "2*3"})]
+    )
     self.assertEqual(num_malformed, 3)
 
   def test_extract_boxed(self):
-    self.assertEqual(chat.extract_boxed(r"a \boxed{1} b \boxed{\frac{1}{2}}"), r"\frac{1}{2}")
+    self.assertEqual(
+        chat.extract_boxed(r"a \boxed{1} b \boxed{\frac{1}{2}}"), r"\frac{1}{2}"
+    )
     self.assertIsNone(chat.extract_boxed("no answer"))
     self.assertIsNone(chat.extract_boxed(r"\boxed{unclosed"))
 
   def test_strip_thinking(self):
-    self.assertEqual(chat.strip_thinking(r"<think>\boxed{1}</think>\boxed{2}"), r"\boxed{2}")
+    self.assertEqual(
+        chat.strip_thinking(r"<think>\boxed{1}</think>\boxed{2}"), r"\boxed{2}"
+    )
 
 
 if __name__ == "__main__":

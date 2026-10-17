@@ -13,7 +13,9 @@ import tokenizers
 import torch
 import transformers
 
-_TEMPLATE = pathlib.Path(__file__).parent / "testdata" / "qwen3_chat_template.jinja"
+_TEMPLATE = (
+    pathlib.Path(__file__).parent / "testdata" / "qwen3_chat_template.jinja"
+)
 
 # Qwen3 marks these as special: `decode(skip_special_tokens=True)` drops them.
 _SPECIAL_TOKENS = ["<|endoftext|>", "<|im_start|>", "<|im_end|>"]

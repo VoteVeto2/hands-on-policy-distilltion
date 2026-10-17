@@ -37,12 +37,18 @@ class CalculatorTest(parameterized.TestCase):
       ("99999999999 * 99999999999", "9999999999800000000001"),
   )
   def test_calculator(self, expression, expected):
-    self.assertEqual(calculator.CalculatorEnv().calculator(expression), expected)
+    self.assertEqual(
+        calculator.CalculatorEnv().calculator(expression), expected
+    )
 
-  @parameterized.parameters("__import__('os')", "len('a')", "2 ** 1000", "x + 1")
+  @parameterized.parameters(
+      "__import__('os')", "len('a')", "2 ** 1000", "x + 1"
+  )
   def test_rejects_non_arithmetic(self, expression):
     tools = base.get_tools(calculator.CalculatorEnv())
-    result = base.call_tool(tools, chat.ToolCall("calculator", {"expression": expression}))
+    result = base.call_tool(
+        tools, chat.ToolCall("calculator", {"expression": expression})
+    )
     self.assertStartsWith(result, "Error:")
 
 
@@ -52,10 +58,16 @@ class SqliteTest(absltest.TestCase):
     env = sqlite_env.SqliteEnv()
     env.reset(db_seed=3)
     tools = base.get_tools(env)
-    self.assertEqual(env.query_sql("SELECT COUNT(*) FROM employees"), "COUNT(*)\n40")
+    self.assertEqual(
+        env.query_sql("SELECT COUNT(*) FROM employees"), "COUNT(*)\n40"
+    )
     for sql, error in (
         ("DELETE FROM employees", "readonly"),
-        ("SELECT COUNT(*) FROM employees a, employees b, employees c, employees d", "expensive"),
+        (
+            "SELECT COUNT(*) FROM employees a, employees b, employees c,"
+            " employees d",
+            "expensive",
+        ),
     ):
       result = base.call_tool(tools, chat.ToolCall("query_sql", {"sql": sql}))
       self.assertStartsWith(result, "Error:")
@@ -89,7 +101,9 @@ class MultiToolTest(absltest.TestCase):
     self.assertEqual(
         sorted(base.get_tools(env)), ["calculator", "json_query", "query_sql"]
     )
-    self.assertEqual(env.query_sql("SELECT COUNT(*) FROM projects"), "COUNT(*)\n12")
+    self.assertEqual(
+        env.query_sql("SELECT COUNT(*) FROM projects"), "COUNT(*)\n12"
+    )
     self.assertEqual(env.json_query("length(products)"), "16")
 
   def test_every_kind_is_sampled(self):
