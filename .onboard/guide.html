@@ -408,6 +408,7 @@ footer { color: var(--muted); font-size: 0.85rem; }
       <div class="prose">
         <p>The bridge between the rows is one line of algebra. Sample y<sub>t</sub> from the student p and treat <code>log q(y<sub>t</sub>) &minus; log p(y<sub>t</sub>)</code> as a reward. Its policy gradient is, in expectation, exactly the gradient of the per-token reverse KL, KL(p&nbsp;&#8741;&nbsp;q). So distillation <em>is</em> RL with a dense reward the teacher computes for every token, and the same clipped policy-gradient loss serves all five stages. <code>opd/losses_test.py</code> checks this identity numerically (<code>test_distillation_advantage_gives_reverse_kl_gradient</code>).</p>
         <p>Why reverse KL? It is <em>mode-seeking</em>: the student is punished for putting mass where the teacher puts little, and is not forced to cover everything the teacher might say. That suits a smaller student that cannot represent all of a larger teacher.</p>
+        <p>The same term appears once more. A KL penalty that keeps an RL policy close to where it started is this estimator with your former self as the teacher: <code>ref_kl_coef &middot; (log ref(y<sub>t</sub>) &minus; log p(y<sub>t</sub>))</code>, added to the advantage.</p>
       </div>
       <pre><code># opd/trainer.py, update(): the heart of every stage
 advantages = config.loss.reward_coef * batch.task_advantages[:, None]
@@ -717,7 +718,7 @@ train.lr = 1e-5          # Tinker's math RL recipe</code></pre>
             <li><span class="dir up">&uarr;</span><span><code>reward</code>, <code>eval/reward</code>, per-kind rewards.</span></li>
             <li><span class="dir flat">&ndash;</span><span><code>entropy</code>: a fast collapse toward 0 means the policy stopped exploring.</span></li>
             <li><span class="dir flat">&gt;0</span><span><code>clip_frac</code>: small but nonzero with two minibatches.</span></li>
-            <li><span class="dir flat">&ndash;</span><span><code>ref_kl</code> (when enabled): with LoRA the reference is free, the same model with adapters switched off.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>ref_kl</code> (when enabled): KL to the policy this stage started from. With a fresh LoRA adapter the reference costs nothing: it is the same model with the adapter switched off.</span></li>
           </ul>
         </div>
       </div>
@@ -823,8 +824,12 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
           <p>Token-level distillation compares log-probs of the same token ids, so the trainer refuses mismatched tokenizers. Within a family, checkpoints can still pad the output layer differently (Qwen2.5-7B: 152,064 rows; Qwen2.5-0.5B: 151,936), which the exact-KL path handles by comparing the shared prefix.</p>
         </div>
         <div class="note">
+          <h3>Where the KL penalty goes matters</h3>
+          <p>GRPO adds Schulman's k3 estimate of KL(&pi;&nbsp;&#8741;&nbsp;ref) to the loss. Its value is right, but differentiated through log &pi; its expected gradient is that of KL(ref&nbsp;&#8741;&nbsp;&pi;), the mass-covering direction. This repo puts the penalty in the advantage instead, like the teacher term. <code>losses_test.py</code> checks both claims by exact enumeration.</p>
+        </div>
+        <div class="note">
           <h3>Truncation is a reward of zero</h3>
-          <p>An episode that runs out of turns or tokens has no boxed answer and scores 0. If <code>truncated</code> climbs, the student is not being punished for being wrong; it is being punished for being long. Raise the budget before you blame the method.</p>
+          <p>An episode that runs out of turns or tokens scores 0, even if a draft <code>\boxed{}</code> appears in its unfinished text. If <code>truncated</code> climbs, the student is being punished for being long, not for being wrong. Raise the budget before you blame the method.</p>
         </div>
       </div>
     </section>
