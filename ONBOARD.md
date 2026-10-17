@@ -57,6 +57,14 @@ Pick the preset after the colon: `mps` (Apple M5 Pro, 48 GB) or `a100`
 | 5. GRPO agent RL | `python -m opd.main --config=opd/configs/stage5_grpo.py:mps --workdir=runs/stage5` |
 | 5. At scale (TRL + vLLM) | `python -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl` |
 
+Or run them all in order, each stage starting from the previous one's
+`final/` (stages that already finished are skipped; see the script header for
+options):
+
+```bash
+scripts/run_stages.sh mps        # or: debug, a100; optionally FIRST LAST
+```
+
 Each run writes `config.json`, `metrics.jsonl` (one JSON line per step),
 `samples.jsonl` (decoded episodes, tool results wrapped in `[env]...[/env]`)
 and checkpoints (`step_N/`, `final/`) to its workdir.
