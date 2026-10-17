@@ -1,0 +1,9 @@
+# Virtual environment
+.venv/
+
+# Cloned upstream repo (see ONBOARD.md)
+third_party/trl/
+
+# Python caches
+__pycache__/
+*.pyc
