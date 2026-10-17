@@ -7,3 +7,6 @@ third_party/trl/
 # Python caches
 __pycache__/
 *.pyc
+
+# Training outputs
+runs/
