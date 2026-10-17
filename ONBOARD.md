@@ -34,7 +34,7 @@ Notes:
 ## Check the install
 
 ```bash
-python -m pytest -q opd     # ~2 minutes on CPU, no downloads
+python -m pytest -q opd     # ~2 minutes on CPU, no downloads; TRL tests skip without TRL
 ```
 
 Then a minutes-long smoke run with the smallest Qwen3 models:
