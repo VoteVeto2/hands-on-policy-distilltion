@@ -53,18 +53,24 @@ class EncodeTest(absltest.TestCase):
 
 class ParseTest(absltest.TestCase):
 
-  def test_parse_tool_calls(self):
+  def test_parse_tool_calls_keeps_order(self):
     text = (
-        'I will compute. <tool_call>\n{"name": "calculator", "arguments":'
-        ' {"expression": "2*3"}}\n</tool_call>'
-        '<tool_call>not json</tool_call><tool_call>{"name": 1}</tool_call>'
-        "<tool_call>{unclosed"
+        "<tool_call>not json</tool_call>I will compute."
+        ' <tool_call>\n{"name": "calculator", "arguments":'
+        ' {"expression": "2*3"}}\n</tool_call><tool_call>{"name": 1}'
+        '</tool_call><tool_call>{"name": "f", "arguments": {}'
+        '<tool_call>{"name": "g"}</tool_call>'
     )
-    calls, num_malformed = chat.parse_tool_calls(text)
     self.assertEqual(
-        calls, [chat.ToolCall("calculator", {"expression": "2*3"})]
+        chat.parse_tool_calls(text),
+        [
+            None,  # Invalid JSON.
+            chat.ToolCall("calculator", {"expression": "2*3"}),
+            None,  # Name is not a string.
+            None,  # Unclosed: must not swallow the next call.
+            chat.ToolCall("g", {}),
+        ],
     )
-    self.assertEqual(num_malformed, 3)
 
   def test_extract_boxed(self):
     self.assertEqual(
@@ -77,6 +83,8 @@ class ParseTest(absltest.TestCase):
     self.assertEqual(
         chat.strip_thinking(r"<think>\boxed{1}</think>\boxed{2}"), r"\boxed{2}"
     )
+    self.assertEqual(chat.strip_thinking(r"<think>maybe \boxed{1}"), "")
+    self.assertEqual(chat.strip_thinking("no thinking"), "no thinking")
 
 
 if __name__ == "__main__":

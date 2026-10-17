@@ -13,7 +13,6 @@ model families):
 
 import dataclasses
 import json
-import re
 from typing import Any, Callable
 
 import transformers
@@ -24,8 +23,6 @@ SYSTEM_PROMPT = (
     " call tools several times. End with the final answer written as"
     " \\boxed{answer}."
 )
-
-_TOOL_CALL_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -114,39 +111,53 @@ def encode_tool_results(
   return tokenizer.encode("\n" + text, add_special_tokens=False)
 
 
-def parse_tool_calls(text: str) -> tuple[list[ToolCall], int]:
-  """Extracts tool calls from one assistant turn.
+def parse_tool_calls(text: str) -> list[ToolCall | None]:
+  """Extracts the tool calls of one assistant turn, in the order written.
+
+  Hermes-style calls carry no ids: the k-th `<tool_response>` answers the k-th
+  `<tool_call>`, so malformed calls keep their place in the list.
 
   Args:
-    text: The decoded assistant turn.
+    text: The turn's content, without any thinking (see `strip_thinking`).
 
   Returns:
-    The well-formed calls, and how many `<tool_call>` blocks were malformed
-    (unclosed, invalid JSON, or missing a string `name`).
+    One entry per `<tool_call>` block: a `ToolCall`, or None if the block is
+    malformed (unclosed, invalid JSON, or no string `name`).
   """
-  bodies = _TOOL_CALL_RE.findall(text)
-  num_malformed = text.count("<tool_call>") - len(bodies)
   calls = []
-  for body in bodies:
-    try:
-      obj = json.loads(body)
-    except json.JSONDecodeError:
-      num_malformed += 1
-      continue
-    if (
-        not isinstance(obj, dict)
-        or not isinstance(obj.get("name"), str)
-        or not isinstance(obj.get("arguments", {}), dict)
-    ):
-      num_malformed += 1
-      continue
-    calls.append(ToolCall(obj["name"], obj.get("arguments", {})))
-  return calls, num_malformed
+  for chunk in text.split("<tool_call>")[1:]:
+    # A block ends at its closing tag; an unclosed one ends at the next call.
+    body, closed, _ = chunk.partition("</tool_call>")
+    calls.append(_parse_call(body) if closed else None)
+  return calls
+
+
+def _parse_call(body: str) -> ToolCall | None:
+  try:
+    obj = json.loads(body)
+  except json.JSONDecodeError:
+    return None
+  if not isinstance(obj, dict) or not isinstance(obj.get("name"), str):
+    return None
+  arguments = obj.get("arguments", {})
+  if not isinstance(arguments, dict):
+    return None
+  return ToolCall(obj["name"], arguments)
 
 
 def strip_thinking(text: str) -> str:
-  """Drops everything up to the last `</think>`."""
-  return text.rsplit("</think>", 1)[-1]
+  """The part of a turn after its reasoning.
+
+  Args:
+    text: A decoded assistant turn.
+
+  Returns:
+    Everything after the last `</think>`; an empty string if a `<think>` was
+    opened and never closed (the turn ended mid-thought).
+  """
+  if "</think>" in text:
+    return text.rsplit("</think>", 1)[-1]
+  return "" if "<think>" in text else text
 
 
 def extract_boxed(text: str) -> str | None:

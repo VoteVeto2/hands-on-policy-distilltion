@@ -86,6 +86,31 @@ class StepTest(absltest.TestCase):
     self.assertTrue(episode.truncated)
     self.assertNotIn(0, episode.action_mask)
 
+  def test_results_follow_call_order(self):
+    episode = rollout.Episode(task={}, group=0, prompt_ids=[1])
+    self._step(
+        episode,
+        "<tool_call>{oops}</tool_call>"
+        '<tool_call>{"name": "calculator", "arguments": {"expression": "2*3"}}'
+        "</tool_call><|im_end|>",
+    )
+    text = rollout.render(episode, self.tokenizer)
+    self.assertLess(text.index("Error: malformed"), text.index("\n6\n"))
+
+  def test_turns_that_end_the_episode(self):
+    call = '<tool_call>{"name": "calculator", "arguments": {"expression": "1"}}'
+    for turn in (
+        # Ends with <|endoftext|>: the conversation is over.
+        call + "</tool_call><|endoftext|>",
+        # The call is only a thought.
+        "<think>" + call + "</tool_call></think>\\boxed{1}<|im_end|>",
+    ):
+      episode = rollout.Episode(task={}, group=0, prompt_ids=[1])
+      self._step(episode, turn)
+      self.assertTrue(episode.done)
+      self.assertFalse(episode.truncated)
+      self.assertEqual(episode.num_tool_calls, 0)
+
   def test_malformed_call_gets_error_feedback(self):
     episode = rollout.Episode(task={}, group=0, prompt_ids=[1])
     self._step(episode, "<tool_call>{oops}</tool_call><|im_end|>")
@@ -111,6 +136,8 @@ class SampleEpisodesTest(absltest.TestCase):
       self.assertLen(episode.completion_ids, len(episode.action_mask))
       self.assertLessEqual(len(episode.completion_ids), 40)
       self.assertIn(episode.reward, (0.0, 1.0))
+      if episode.truncated:
+        self.assertEqual(episode.reward, 0.0)
 
 
 if __name__ == "__main__":

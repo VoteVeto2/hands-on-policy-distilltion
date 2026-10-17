@@ -172,7 +172,9 @@ def sample_episodes(
         )  # fmt: skip
 
   for episode in episodes:
-    episode.reward = base.grade(episode.turns[-1], episode.task["answer"])
+    # An unfinished episode earns nothing, even if a draft answer is in it.
+    if not episode.truncated:
+      episode.reward = base.grade(episode.turns[-1], episode.task["answer"])
   return episodes
 
 
@@ -193,18 +195,22 @@ def _step(
   if not new_ids or new_ids[-1] not in stop_ids:  # Ran out of tokens.
     episode.truncated = episode.done = True
     return
-  calls, num_malformed = chat.parse_tool_calls(text)
-  if not calls and not num_malformed:  # A final answer.
+  calls = chat.parse_tool_calls(chat.strip_thinking(text))
+  # A turn without tool calls is the final answer. So is one that ends with
+  # <|endoftext|> instead of <|im_end|>: the model ended the conversation.
+  if not calls or new_ids[-1] != tokenizer.convert_tokens_to_ids("<|im_end|>"):
     episode.done = True
     return
   if last_turn:  # Wants another tool round but has no turns left.
     episode.truncated = episode.done = True
     return
-  results = [base.call_tool(tools, call) for call in calls]
-  results += [
+  malformed = (
       "Error: malformed <tool_call>; expected JSON with name and arguments."
-  ] * num_malformed
-  episode.num_tool_calls += len(calls) + num_malformed
+  )
+  results = [
+      malformed if c is None else base.call_tool(tools, c) for c in calls
+  ]
+  episode.num_tool_calls += len(calls)
   episode.num_tool_errors += sum(r.startswith("Error:") for r in results)
   result_ids = chat.encode_tool_results(
       tokenizer, results, config.enable_thinking
