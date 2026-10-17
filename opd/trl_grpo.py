@@ -27,6 +27,7 @@ from absl import flags
 import datasets
 from ml_collections import config_flags
 import peft
+import torch
 import transformers
 import trl
 
@@ -86,14 +87,14 @@ def build_dataset(config, num_rows: int) -> datasets.Dataset:
 def load_model(config) -> str | transformers.PreTrainedModel:
   """The student, with a previous stage's LoRA adapter merged in if given."""
   checkpoint = config.model.init_checkpoint
-  if not checkpoint:
-    return config.model.student
-  if not os.path.exists(os.path.join(checkpoint, "adapter_config.json")):
-    return checkpoint  # A full fine-tuned model.
+  if not models.is_adapter(checkpoint):
+    return checkpoint or config.model.student
+  # Merge in float32: added to bf16 weights, small LoRA updates round away.
   model = transformers.AutoModelForCausalLM.from_pretrained(
-      config.model.student, dtype="auto"
+      config.model.student, dtype=torch.float32
   )
-  return peft.PeftModel.from_pretrained(model, checkpoint).merge_and_unload()
+  model = peft.PeftModel.from_pretrained(model, checkpoint).merge_and_unload()
+  return model.requires_grad_(True)  # PEFT froze the base weights.
 
 
 def make_grpo_config(config, workdir: str, use_vllm: bool) -> trl.GRPOConfig:

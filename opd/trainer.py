@@ -127,7 +127,7 @@ def score(
       if config.loss.ref_kl_coef > 0:
         if reference is not None:
           batch.ref_logp = _logp(reference, batch)
-        else:  # LoRA: the reference is the base model, adapters switched off.
+        else:  # A fresh LoRA adapter: switched off, the policy is its start.
           with policy.disable_adapter():
             batch.ref_logp = _logp(policy, batch)
 
@@ -170,6 +170,12 @@ def update(
         teacher_kl = old_logp - batch.teacher_logp
         advantages = advantages - config.loss.teacher_coef * teacher_kl
         sums["teacher_kl"] += (teacher_kl * batch.action_mask).sum().item()
+      if batch.ref_logp is not None:
+        # The same estimator, with the policy this stage started from as the
+        # teacher: a KL penalty that keeps the student near its start.
+        ref_kl = old_logp - batch.ref_logp
+        advantages = advantages - config.loss.ref_kl_coef * ref_kl
+        sums["ref_kl"] += (ref_kl * batch.action_mask).sum().item()
       per_token, clipped = losses.clipped_policy_loss(
           logp,
           old_logp,
@@ -185,10 +191,6 @@ def update(
         sums["teacher_kl"] += (
             (teacher_kl.detach() * batch.action_mask).sum().item()
         )
-      if batch.ref_logp is not None:
-        ref_kl = losses.k3_kl(logp, batch.ref_logp)
-        per_token = per_token + config.loss.ref_kl_coef * ref_kl
-        sums["ref_kl"] += (ref_kl.detach() * batch.action_mask).sum().item()
       loss = (per_token * batch.action_mask).sum() / num_tokens
       loss.backward()
       sums["loss"] += loss.item()
@@ -202,7 +204,10 @@ def update(
     scheduler.step()
     sums["grad_norm"] += grad_norm.item() / num_steps
   tokens = max(sums.pop("tokens"), 1.0)
-  metrics = {"loss": sums.pop("loss"), "grad_norm": sums.pop("grad_norm")}
+  metrics = {
+      "loss": sums.pop("loss") / num_steps,  # Mean over optimizer steps.
+      "grad_norm": sums.pop("grad_norm"),
+  }
   metrics.update({name: value / tokens for name, value in sums.items()})
   return metrics
 
@@ -255,6 +260,13 @@ def _validate(config: config_dict.ConfigDict) -> None:
     raise ValueError(
         "Group advantages need train.samples_per_prompt >= 2; with one sample"
         " the reward minus its group mean is always zero."
+    )
+  episodes = config.train.prompts_per_step * config.train.samples_per_prompt
+  num_micro_batches = -(-episodes // config.train.micro_batch_size)
+  if num_micro_batches < config.train.num_minibatches:
+    raise ValueError(
+        "Every optimizer step needs at least one micro-batch: lower"
+        " train.micro_batch_size or train.num_minibatches."
     )
 
 
@@ -310,9 +322,15 @@ def train(config: config_dict.ConfigDict, workdir: str) -> None:
         tokenizer, models.load_tokenizer(config.model.teacher)
     )
     teacher = models.load_frozen(config.model.teacher, device)
+  # The KL penalty's reference is the policy this stage starts from. With a
+  # fresh LoRA adapter that is the policy with its adapter switched off (see
+  # `score`); otherwise it is a separate frozen copy.
   reference = None
-  if config.loss.ref_kl_coef > 0 and not config.model.lora.enabled:
-    reference = models.load_frozen(config.model.student, device)
+  fresh_adapter = config.model.lora.enabled and not models.is_adapter(
+      config.model.init_checkpoint
+  )
+  if config.loss.ref_kl_coef > 0 and not fresh_adapter:
+    reference = models.load_reference(config.model, device)
 
   optimizer = torch.optim.AdamW(
       [p for p in policy.parameters() if p.requires_grad],

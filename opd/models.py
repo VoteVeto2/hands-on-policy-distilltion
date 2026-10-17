@@ -6,7 +6,7 @@ Precision rules (the memory budget behind them is in the guide):
   * Full fine-tuning: fp32 master weights, bf16 autocast for the math (see
     `rollout.autocast`). Pure-bf16 weights would silently drop updates: bf16
     keeps ~3 significant digits, so w + 1e-6 * g rounds back to w.
-  * Frozen models (teacher, reference): bf16.
+  * Frozen models (teacher, KL reference): bf16.
   * CPU (unit tests): everything fp32.
 """
 
@@ -42,8 +42,19 @@ def check_same_tokenizer(
     )
 
 
+def is_adapter(path: str) -> bool:
+  """True if `path` holds a LoRA adapter (an earlier LoRA stage's output)."""
+  return bool(path) and os.path.exists(
+      os.path.join(path, "adapter_config.json")
+  )
+
+
 def load_policy(config, device: torch.device) -> transformers.PreTrainedModel:
   """Loads the trainable student.
+
+  `config.init_checkpoint` chains stages. A full checkpoint replaces the
+  student's weights. A LoRA adapter is trained further when LoRA is on, and
+  folded into the fp32 weights when it is off (full fine-tuning).
 
   Args:
     config: The `model` section of the experiment config.
@@ -53,38 +64,36 @@ def load_policy(config, device: torch.device) -> transformers.PreTrainedModel:
     A PEFT model when `config.lora.enabled`, else the full model.
   """
   checkpoint = config.init_checkpoint
-  is_adapter = bool(checkpoint) and os.path.exists(
-      os.path.join(checkpoint, "adapter_config.json")
-  )
   if device.type == "cpu" or not config.lora.enabled:
     dtype = torch.float32
   else:
     dtype = torch.bfloat16
-  base_name = config.student if is_adapter or not checkpoint else checkpoint
+  from_adapter = is_adapter(checkpoint)
   model = transformers.AutoModelForCausalLM.from_pretrained(
-      base_name, dtype=dtype
+      config.student if from_adapter or not checkpoint else checkpoint,
+      dtype=dtype,
   )
+  if from_adapter and not config.lora.enabled:
+    model = peft.PeftModel.from_pretrained(model, checkpoint).merge_and_unload()
+    model.requires_grad_(True)  # PEFT froze the base weights when loading.
   model.to(device)
   if config.gradient_checkpointing:
     # Recompute activations in the backward pass: ~30% slower, far less memory.
     model.gradient_checkpointing_enable(
         gradient_checkpointing_kwargs={"use_reentrant": False}
     )
-  if config.lora.enabled:
-    if is_adapter:
-      model = peft.PeftModel.from_pretrained(
-          model, checkpoint, is_trainable=True
-      )
-    else:
-      model = peft.get_peft_model(
-          model,
-          peft.LoraConfig(
-              r=config.lora.rank,
-              lora_alpha=config.lora.alpha,
-              target_modules="all-linear",  # Attention *and* MLP layers.
-              lora_dropout=0.0,
-          ),
-      )
+  if config.lora.enabled and from_adapter:
+    model = peft.PeftModel.from_pretrained(model, checkpoint, is_trainable=True)
+  elif config.lora.enabled:
+    model = peft.get_peft_model(
+        model,
+        peft.LoraConfig(
+            r=config.lora.rank,
+            lora_alpha=config.lora.alpha,
+            target_modules="all-linear",  # Attention *and* MLP layers.
+            lora_dropout=0.0,
+        ),
+    )
   trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
   total = sum(p.numel() for p in model.parameters())
   logging.info(
@@ -97,8 +106,21 @@ def load_policy(config, device: torch.device) -> transformers.PreTrainedModel:
 def load_frozen(
     name: str, device: torch.device
 ) -> transformers.PreTrainedModel:
-  """Loads a model for inference only (teacher or reference)."""
+  """Loads a model for inference only (the teacher)."""
   dtype = torch.float32 if device.type == "cpu" else torch.bfloat16
   model = transformers.AutoModelForCausalLM.from_pretrained(name, dtype=dtype)
   model.to(device).eval().requires_grad_(False)
   return model
+
+
+def load_reference(
+    config, device: torch.device
+) -> transformers.PreTrainedModel:
+  """A frozen copy of the policy this stage starts from, for the KL penalty."""
+  checkpoint = config.init_checkpoint
+  if not is_adapter(checkpoint):
+    return load_frozen(checkpoint or config.student, device)
+  model = load_frozen(config.student, device)
+  # Kept unmerged: folding a small LoRA update into bf16 weights rounds part of
+  # it away.
+  return peft.PeftModel.from_pretrained(model, checkpoint).eval()

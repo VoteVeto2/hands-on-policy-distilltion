@@ -70,14 +70,56 @@ class LossesTest(absltest.TestCase):
     torch.testing.assert_close(loss, torch.tensor([-1.28, 0.8, 1.5]))
     torch.testing.assert_close(clipped, torch.tensor([1.0, 1.0, 0.0]))
 
-  def test_k3_is_unbiased(self):
-    torch.manual_seed(0)
-    p = torch.distributions.Categorical(logits=torch.randn(5))
-    q = torch.distributions.Categorical(logits=torch.randn(5))
-    y = p.sample((200_000,))
-    estimate = losses.k3_kl(p.log_prob(y), q.log_prob(y)).mean()
-    exact = torch.distributions.kl_divergence(p, q)
-    self.assertAlmostEqual(estimate.item(), exact.item(), delta=0.01)
+  def test_k3_in_the_loss_follows_the_forward_kl(self):
+    # Why the KL penalty lives in the advantage. GRPO adds Schulman's k3
+    # estimate of KL(p || ref) to the loss. Its value is right, but its
+    # expected gradient is that of KL(ref || p), the mass-covering direction.
+    theta = torch.randn(6, requires_grad=True)
+    log_ref = F.log_softmax(torch.randn(6), -1)
+
+    def grad(fn):
+      log_p = F.log_softmax(theta, -1)
+      return torch.autograd.grad(fn(log_p), theta)[0]
+
+    def k3_loss(log_p):
+      log_ratio = log_ref - log_p
+      k3 = torch.exp(log_ratio) - log_ratio - 1
+      return (log_p.exp().detach() * k3).sum()  # Exact expectation, y ~ p.
+
+    forward_kl = grad(lambda log_p: (log_ref.exp() * (log_ref - log_p)).sum())
+    reverse_kl = grad(lambda log_p: (log_p.exp() * (log_p - log_ref)).sum())
+    torch.testing.assert_close(grad(k3_loss), forward_kl)
+    self.assertFalse(torch.allclose(grad(k3_loss), reverse_kl))
+
+  def test_rows_are_recomputed_not_stored(self):
+    # Under autograd, only the bf16 input logits may be kept for backward:
+    # no float32 [T, V] intermediates.
+    logits = torch.randn(4, 16, 1000, dtype=torch.bfloat16, requires_grad=True)
+    targets = torch.randint(0, 1000, (4, 16))
+    saved = []
+
+    def pack(tensor):
+      saved.append(tensor)
+      return tensor
+
+    with torch.autograd.graph.saved_tensors_hooks(pack, lambda t: t):
+      logp, _ = losses.token_logprobs(logits, targets)
+      kl = losses.reverse_kl(logits, logits.detach().flip(0))
+    self.assertEmpty(
+        [t for t in saved if t.dtype == torch.float32 and t.numel() >= 16000]
+    )
+    (logp.sum() + kl.sum()).backward()
+
+    # Same gradients as the plain float32 computation.
+    expected = logits.detach().float().requires_grad_()
+    log_p = F.log_softmax(expected, -1)
+    log_q = F.log_softmax(logits.detach().flip(0).float(), -1)
+    plain = log_p.gather(-1, targets[..., None]).sum()
+    plain = plain + (log_p.exp() * (log_p - log_q)).sum()
+    plain.backward()
+    torch.testing.assert_close(
+        logits.grad.float(), expected.grad, atol=1e-2, rtol=1e-2
+    )
 
 
 if __name__ == "__main__":

@@ -94,17 +94,20 @@ class TrainerTest(parameterized.TestCase):
         os.path.exists(os.path.join(workdir, "final", "model.safetensors"))
     )
 
-  def test_lora_reference_and_chaining_stages(self):
+  @parameterized.parameters(True, False)
+  def test_chained_stage_starts_at_zero_reference_kl(self, lora):
+    # The KL penalty's reference must be where the stage starts (here: the
+    # stage 3 adapter), not the original student.
     first = self._tempdir()
     trainer.train(self._tiny(stage3_multi_tool.get_config("mps")), first)
     config = self._tiny(stage5_grpo.get_config("mps"))
     config.model.init_checkpoint = os.path.join(first, "final")
+    config.model.lora.enabled = lora
     config.loss.ref_kl_coef = 0.1
     second = self._tempdir()
     trainer.train(config, second)
-    self.assertIn(
-        "ref_kl", [m for m in _read_metrics(second) if "loss" in m][0]
-    )
+    step1 = [m for m in _read_metrics(second) if "loss" in m][0]
+    self.assertAlmostEqual(step1["ref_kl"], 0.0, places=4)
 
   @parameterized.parameters(
       # (estimator, prompts per step, tokens per turn, required KL ratio)
@@ -153,6 +156,10 @@ class TrainerTest(parameterized.TestCase):
     config = self._tiny(stage4_distill_reward.get_config("mps"))
     config.train.samples_per_prompt = 1
     with self.assertRaisesRegex(ValueError, "samples_per_prompt"):
+      trainer.train(config, self._tempdir())
+    config = self._tiny(stage5_grpo.get_config("mps"))
+    config.train.micro_batch_size = 64  # One micro-batch, two minibatches.
+    with self.assertRaisesRegex(ValueError, "micro-batch"):
       trainer.train(config, self._tempdir())
 
   def test_command_line(self):
