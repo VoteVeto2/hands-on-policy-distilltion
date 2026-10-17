@@ -13,6 +13,7 @@ Precision rules (the memory budget behind them is in the guide):
 import os
 
 from absl import logging
+from ml_collections import config_dict
 import peft
 import torch
 import transformers
@@ -49,7 +50,24 @@ def is_adapter(path: str) -> bool:
   )
 
 
-def load_policy(config, device: torch.device) -> transformers.PreTrainedModel:
+def base_weights(config: config_dict.ConfigDict) -> str:
+  """The full weights a stage starts from, before any LoRA adapter.
+
+  An adapter records the weights it was trained on. They are not
+  `config.student` when an earlier stage ran full fine-tuning.
+
+  Args:
+    config: The `model` section of the experiment config.
+  """
+  checkpoint = config.init_checkpoint
+  if is_adapter(checkpoint):
+    return peft.PeftConfig.from_pretrained(checkpoint).base_model_name_or_path
+  return checkpoint or config.student
+
+
+def load_policy(
+    config: config_dict.ConfigDict, device: torch.device
+) -> transformers.PreTrainedModel:
   """Loads the trainable student.
 
   `config.init_checkpoint` chains stages. A full checkpoint replaces the
@@ -70,8 +88,7 @@ def load_policy(config, device: torch.device) -> transformers.PreTrainedModel:
     dtype = torch.bfloat16
   from_adapter = is_adapter(checkpoint)
   model = transformers.AutoModelForCausalLM.from_pretrained(
-      config.student if from_adapter or not checkpoint else checkpoint,
-      dtype=dtype,
+      base_weights(config), dtype=dtype
   )
   if from_adapter and not config.lora.enabled:
     model = peft.PeftModel.from_pretrained(model, checkpoint).merge_and_unload()
@@ -114,13 +131,13 @@ def load_frozen(
 
 
 def load_reference(
-    config, device: torch.device
+    config: config_dict.ConfigDict, device: torch.device
 ) -> transformers.PreTrainedModel:
   """A frozen copy of the policy this stage starts from, for the KL penalty."""
   checkpoint = config.init_checkpoint
+  model = load_frozen(base_weights(config), device)
   if not is_adapter(checkpoint):
-    return load_frozen(checkpoint or config.student, device)
-  model = load_frozen(config.student, device)
+    return model
   # Kept unmerged: folding a small LoRA update into bf16 weights rounds part of
   # it away.
   return peft.PeftModel.from_pretrained(model, checkpoint).eval()

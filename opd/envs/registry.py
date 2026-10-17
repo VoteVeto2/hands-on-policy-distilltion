@@ -1,4 +1,4 @@
-"""Name -> environment lookup used by configs (`config.env.name`).
+"""Name -> environment lookup used by configs (`config.env`).
 
 To add a task: write an `Env` subclass and a `sample_task` function in a new
 module, then register its `EnvSpec` here.

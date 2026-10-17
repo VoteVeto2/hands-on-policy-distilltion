@@ -143,8 +143,19 @@ def update(
 ) -> dict[str, float]:
   """Splits the batch into `num_minibatches` optimizer steps and runs them.
 
+  Args:
+    micro_batches: The step's micro-batches, already filled by `score`.
+    policy: The model being trained.
+    teacher: Used here only by the "full" estimator; the "sampled" one reads
+      the log-probs `score` stored.
+    optimizer: Steps once per minibatch.
+    scheduler: Steps once per minibatch.
+    config: Reads `train.num_minibatches`, `train.max_grad_norm` and `loss`.
+    device: Selects the autocast dtype.
+
   Returns:
-    Token-averaged diagnostics.
+    `loss` and `grad_norm` averaged over optimizer steps; `teacher_kl`,
+    `ref_kl`, `entropy` and `clip_frac` averaged over sampled tokens.
   """
   policy.train()
   params = [p for p in policy.parameters() if p.requires_grad]
@@ -423,7 +434,9 @@ def train(config: config_dict.ConfigDict, workdir: str) -> None:
       )
     if config.eval.every and step % config.eval.every == 0:
       run_eval(step)
-    if step % config.log.save_every == 0 or step == config.train.num_steps:
+    if step == config.train.num_steps or (
+        config.log.save_every and step % config.log.save_every == 0
+    ):
       name = "final" if step == config.train.num_steps else f"step_{step}"
       policy.save_pretrained(os.path.join(workdir, name))
       tokenizer.save_pretrained(os.path.join(workdir, name))
@@ -434,7 +447,6 @@ def train(config: config_dict.ConfigDict, workdir: str) -> None:
 def _format(metrics: dict[str, Any]) -> str:
   keys = (
       "reward",
-      "accuracy",
       "teacher_kl",
       "entropy",
       "tool_calls",

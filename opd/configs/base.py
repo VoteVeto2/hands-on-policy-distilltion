@@ -79,8 +79,8 @@ def get_config() -> config_dict.ConfigDict:
   c.eval.teacher_baseline = True  # Evaluate the teacher once: the ceiling.
 
   c.log = config_dict.ConfigDict()
-  c.log.samples_every = 10
-  c.log.save_every = 50
+  c.log.samples_every = 10  # Steps; 0 logs no samples.
+  c.log.save_every = 50  # Steps; 0 saves only the final checkpoint.
   c.log.wandb_project = ""
   return c
 

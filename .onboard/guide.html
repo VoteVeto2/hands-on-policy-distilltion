@@ -753,7 +753,7 @@ accelerate launch -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100 --use
             <tr><td><code>train.samples_per_prompt</code></td><td><code>num_generations</code></td></tr>
             <tr><td><code>train.num_minibatches</code></td><td>optimizer steps per generation batch (<code>steps_per_generation</code>)</td></tr>
             <tr><td><code>loss.clip_low</code> / <code>clip_high</code></td><td><code>epsilon</code> / <code>epsilon_high</code></td></tr>
-            <tr><td><code>loss.ref_kl_coef</code></td><td><code>beta</code></td></tr>
+            <tr><td><code>loss.ref_kl_coef</code></td><td><code>beta</code>, approximately: TRL adds k3 to the loss, whose gradient follows the forward KL(ref&nbsp;&#8741;&nbsp;&pi;); this repo puts the reverse KL in the advantage</td></tr>
             <tr><td>token-mean loss</td><td><code>loss_type="dapo"</code></td></tr>
             <tr><td><code>loss.normalize_std</code></td><td><code>scale_rewards="group"</code> or <code>"none"</code></td></tr>
           </tbody>

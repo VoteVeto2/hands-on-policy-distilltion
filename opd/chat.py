@@ -54,8 +54,10 @@ def encode_prompt(
   Args:
     tokenizer: A tokenizer with a ChatML chat template.
     question: The user's message.
-    tools: Tool functions. The chat template converts their type hints and
-      Google-style docstrings into JSON schemas inside the system prompt.
+    tools: Tool functions. `apply_chat_template` converts their type hints
+      and Google-style docstrings into JSON schemas
+      (`transformers.utils.get_json_schema`), which the chat template renders
+      into the system prompt.
     enable_thinking: Qwen3 switch. When False the template pre-fills an empty
       `<think></think>` block so the model answers directly.
 

@@ -8,9 +8,11 @@ with `trl.GRPOTrainer` at scale (see `opd/trl_grpo.py`):
     forward `**task` (`super().reset(**task)`), so that environments compose
     by multiple inheritance (see `multi_tool.py`).
   * Every other public method is a tool. Tools need type hints and a
-    Google-style docstring: the chat template turns them into the JSON schema
-    the model reads in its system prompt. The docstring *is* the tool's API
-    documentation for the LLM, so write it for the LLM.
+    Google-style docstring: `apply_chat_template` turns them into JSON schemas
+    (`transformers.utils.get_json_schema`, which raises if an argument lacks a
+    type hint or an Args entry), and the chat template renders those into the
+    model's system prompt. The docstring *is* the tool's API documentation for
+    the LLM, so write it for the LLM.
 
 A task is a plain dict with at least "question", "answer" and "kind" keys, plus
 whatever seeds the environment needs to rebuild its state.
@@ -91,5 +93,8 @@ def answers_match(prediction: str, answer: str) -> bool:
 
 def _normalize(text: str) -> str:
   text = re.sub(r"\\text\{(.*?)\}", r"\1", text)
-  text = text.replace("\\$", "").replace("$", "").replace(",", "")
-  return text.strip().strip(".'\"").strip().lower()
+  # LaTeX separators before the plain comma: "1{,}234" and "1\\,234".
+  for symbol in ("\\$", "$", "\\%", "%", "{,}", "\\,", ","):
+    text = text.replace(symbol, "")
+  # Only a trailing period: ".5" must stay ".5".
+  return text.strip().strip("'\"").rstrip(".").strip().lower()

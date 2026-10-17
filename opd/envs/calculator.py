@@ -48,8 +48,14 @@ def _evaluate(node: ast.AST) -> int | float:
     return _UNARY_OPS[type(node.op)](_evaluate(node.operand))
   if isinstance(node, ast.BinOp) and type(node.op) in _BINARY_OPS:
     left, right = _evaluate(node.left), _evaluate(node.right)
-    if isinstance(node.op, ast.Pow) and abs(right) > 64:
-      raise ValueError("exponent larger than 64")
+    if isinstance(node.op, ast.Pow):
+      if abs(right) > 64:
+        raise ValueError("exponent larger than 64")
+      # Nested powers like ((9**64)**64)**64 keep each exponent small while
+      # the result grows to millions of digits. ~15k bits is about the
+      # 4300-digit limit of str(int), so nothing printable is rejected.
+      if isinstance(left, int) and left.bit_length() * abs(right) > 15_000:
+        raise ValueError("result too large")
     return _BINARY_OPS[type(node.op)](left, right)
   raise ValueError(f"unsupported expression: {ast.unparse(node)}")
 

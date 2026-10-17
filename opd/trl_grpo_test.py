@@ -3,7 +3,11 @@ import os
 import tempfile
 
 from absl.testing import absltest
+import pytest
 
+pytest.importorskip("trl")  # Optional: the stage 5 scale-out path.
+
+# pylint: disable=g-import-not-at-top,g-bad-import-order
 from opd import testing
 from opd import trl_grpo
 from opd.configs import stage5_grpo
@@ -11,18 +15,22 @@ from opd.configs import stage5_grpo
 
 class TrlGrpoTest(absltest.TestCase):
 
-  def test_reward_reads_final_assistant_message(self):
+  def test_reward_grades_final_message_of_finished_rollouts(self):
+    stop, other = 1, 2
+    called = {"role": "assistant", "content": "", "tool_calls": [{}]}
+    answered = {"role": "assistant", "content": r"\boxed{6}"}
     completions = [
-        [
-            {"role": "assistant", "content": "", "tool_calls": [{}]},
-            {"role": "tool", "content": "6"},
-            {"role": "assistant", "content": r"\boxed{6}"},
-        ],
+        [called, {"role": "tool", "content": "6"}, answered],
         [{"role": "assistant", "content": r"\boxed{5}"}],
         [{"role": "assistant", "content": None}],
+        [answered],  # Ran out of tokens before the end of the turn.
+        [called],  # Still calling tools at the turn limit.
     ]
-    rewards = trl_grpo.correctness_reward(completions, answer=["6", "6", "6"])
-    self.assertEqual(rewards, [1.0, 0.0, 0.0])
+    ids = [[other, stop], [stop], [stop], [other], [stop]]
+    reward = trl_grpo.make_reward([stop])
+    self.assertEqual(reward.__name__, "correctness_reward")
+    rewards = reward(completions, completion_ids=ids, answer=["6"] * 5)
+    self.assertEqual(rewards, [1.0, 0.0, 0.0, 0.0, 0.0])
 
   def test_trains_with_trl(self):
     root = self.enterContext(tempfile.TemporaryDirectory())

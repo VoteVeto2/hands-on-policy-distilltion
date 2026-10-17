@@ -9,7 +9,10 @@ import tempfile
 from absl.testing import absltest
 from absl.testing import parameterized
 import torch
+from torch.nn import functional as F
 
+from opd import losses
+from opd import rollout
 from opd import testing
 from opd import trainer
 from opd.configs import stage1_distill
@@ -97,9 +100,14 @@ class TrainerTest(parameterized.TestCase):
   @parameterized.parameters(True, False)
   def test_chained_stage_starts_at_zero_reference_kl(self, lora):
     # The KL penalty's reference must be where the stage starts (here: the
-    # stage 3 adapter), not the original student.
+    # stage 3 adapter), not the original student. The large lr moves stage 3
+    # far enough (ref_kl ~7e-3 against the original student) for the
+    # assertion to tell the two apart.
     first = self._tempdir()
-    trainer.train(self._tiny(stage3_multi_tool.get_config("mps")), first)
+    config = self._tiny(stage3_multi_tool.get_config("mps"))
+    config.train.lr = 1e-2
+    config.train.warmup_steps = 0
+    trainer.train(config, first)
     config = self._tiny(stage5_grpo.get_config("mps"))
     config.model.init_checkpoint = os.path.join(first, "final")
     config.model.lora.enabled = lora
@@ -108,6 +116,88 @@ class TrainerTest(parameterized.TestCase):
     trainer.train(config, second)
     step1 = [m for m in _read_metrics(second) if "loss" in m][0]
     self.assertAlmostEqual(step1["ref_kl"], 0.0, places=4)
+
+  def test_fresh_adapter_reference_is_the_disabled_adapter(self):
+    # Runs the `policy.disable_adapter()` branch of `score`.
+    config = self._tiny(stage5_grpo.get_config("mps"))
+    config.loss.ref_kl_coef = 0.1
+    config.log.save_every = 0  # Only the final checkpoint.
+    workdir = self._tempdir()
+    trainer.train(config, workdir)
+    step1 = [m for m in _read_metrics(workdir) if "loss" in m][0]
+    self.assertAlmostEqual(step1["ref_kl"], 0.0, places=4)
+    self.assertTrue(os.path.exists(os.path.join(workdir, "final")))
+
+  def test_collate_and_forward_logits_align_with_sampled_tokens(self):
+    tokenizer = testing.make_tokenizer()
+    model = testing.make_model(len(tokenizer)).eval()
+    episodes = [  # Different prompt lengths; tokens 10, 11 are a tool result.
+        rollout.Episode(
+            task={},
+            group=0,
+            prompt_ids=[5, 6, 7],
+            completion_ids=[8, 9, 10, 11, 12, 13],
+            action_mask=[1, 1, 0, 0, 1, 1],
+        ),
+        rollout.Episode(
+            task={},
+            group=0,
+            prompt_ids=[5, 6, 7, 20, 21],
+            completion_ids=[30, 31],
+            action_mask=[1, 1],
+        ),
+    ]
+    batch = trainer.collate(
+        episodes, torch.zeros(2), tokenizer.pad_token_id, torch.device("cpu")
+    )
+    with torch.no_grad():
+      logp, _ = losses.token_logprobs(
+          trainer.forward_logits(model, batch), batch.targets
+      )
+    for i, episode in enumerate(episodes):
+      # Reference: an unpadded forward pass; position t - 1 predicts token t.
+      sequence = episode.prompt_ids + episode.completion_ids
+      with torch.no_grad():
+        full = F.log_softmax(model(torch.tensor([sequence])).logits[0], -1)
+      expected_mask = torch.zeros(batch.action_mask.shape[1])
+      for j, sampled in enumerate(episode.action_mask):
+        t = len(episode.prompt_ids) + j
+        expected_mask[t - batch.start] = sampled
+        torch.testing.assert_close(
+            logp[i, t - batch.start], full[t - 1, sequence[t]]
+        )
+      torch.testing.assert_close(batch.action_mask[i], expected_mask)
+
+  def test_reference_kl_pulls_toward_the_reference(self):
+    # Tokens the policy likes more than the reference does get a negative
+    # advantage, so one update must make them less likely.
+    tokenizer = testing.make_tokenizer()
+    policy = testing.make_model(len(tokenizer))
+    episode = rollout.Episode(
+        task={},
+        group=0,
+        prompt_ids=[5, 6, 7],
+        completion_ids=[8, 9, 10],
+        action_mask=[1, 1, 1],
+    )
+    batch = trainer.collate(
+        [episode], torch.zeros(1), tokenizer.pad_token_id, torch.device("cpu")
+    )
+    with torch.no_grad():
+      before = trainer._logp(policy, batch)
+    batch.ref_logp = before - 1.0
+    config = stage5_grpo.get_config("mps")
+    config.loss.ref_kl_coef = 1.0
+    config.loss.reward_coef = 0.0
+    config.train.num_minibatches = 1
+    optimizer = torch.optim.SGD(policy.parameters(), lr=0.1)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
+    trainer.update(
+        [batch], policy, None, optimizer, scheduler, config, torch.device("cpu")
+    )
+    with torch.no_grad():
+      after = trainer._logp(policy, batch)
+    self.assertLess(after.sum().item(), before.sum().item())
 
   @parameterized.parameters(
       # (estimator, prompts per step, tokens per turn, required KL ratio)

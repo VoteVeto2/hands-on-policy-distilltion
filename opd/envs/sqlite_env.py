@@ -38,6 +38,14 @@ _NUM_PROJECTS = 12
 _MAX_ROWS = 20
 # The progress handler runs every 1000 VM instructions; 1000 calls ~ 1M ops.
 _MAX_PROGRESS_CALLS = 1000
+_READ_ACTIONS = frozenset(
+    (
+        sqlite3.SQLITE_SELECT,
+        sqlite3.SQLITE_READ,
+        sqlite3.SQLITE_FUNCTION,
+        sqlite3.SQLITE_RECURSIVE,
+    )
+)
 
 # (question template, ground-truth SQL). Placeholders are sampled per task.
 _QUESTIONS = (
@@ -69,7 +77,9 @@ _QUESTIONS = (
     (
         "What is the total budget of the {status} projects run by the"
         " {department} department?",
-        "SELECT COALESCE(SUM(budget), 0) FROM projects"
+        # No COALESCE: an empty selection gives NULL and is resampled, so the
+        # answer is never a free \boxed{0}.
+        "SELECT SUM(budget) FROM projects"
         " WHERE department = :department AND status = :status",
     ),
 )
@@ -104,7 +114,14 @@ def build_database(seed: int) -> sqlite3.Connection:
          rng.randrange(10_000, 500_000, 1_000), rng.choice(_STATUSES)),
     )  # fmt: skip
   db.commit()
-  db.execute("PRAGMA query_only = ON")
+  # Allow plain reads only. `PRAGMA query_only` alone is not a sandbox: the
+  # policy could switch it off, and ATTACH / VACUUM INTO touch host files.
+  db.set_authorizer(
+      lambda action, *_: sqlite3.SQLITE_OK
+      if action in _READ_ACTIONS
+      else sqlite3.SQLITE_DENY
+  )
+  db.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 0)
   return db
 
 

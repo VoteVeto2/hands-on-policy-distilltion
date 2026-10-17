@@ -26,7 +26,11 @@ from opd.envs import base
 
 @dataclasses.dataclass
 class Episode:
-  """One rollout. Token lists are what the model saw; texts are for humans."""
+  """One rollout. Token lists are what the model saw and is trained on.
+
+  `turns` holds the decoded student turns; the last one is graded. Logs show
+  `render(episode)` instead, which also includes the tool results.
+  """
 
   task: base.Task
   group: int  # Index of the prompt; samples of one prompt form a GRPO group.

@@ -22,6 +22,9 @@ class GradeTest(parameterized.TestCase):
       (r"\boxed{ada abe}", "Ada Abe", 1.0),
       (r"<think>\boxed{7}</think> \boxed{8}", "7", 0.0),
       ("7", "7", 0.0),  # The answer must be boxed.
+      (r"\boxed{25\%}", "25", 1.0),
+      (r"\boxed{1{,}234}", "1234", 1.0),
+      (r"\boxed{.5}", "5", 0.0),
   )
   def test_grade(self, completion, answer, expected):
     self.assertEqual(base.grade(completion, answer), expected)
@@ -42,7 +45,11 @@ class CalculatorTest(parameterized.TestCase):
     )
 
   @parameterized.parameters(
-      "__import__('os')", "len('a')", "2 ** 1000", "x + 1"
+      "__import__('os')",
+      "len('a')",
+      "2 ** 1000",
+      "x + 1",
+      "((9 ** 64) ** 64) ** 64",  # Each exponent is small, the result is not.
   )
   def test_rejects_non_arithmetic(self, expression):
     tools = base.get_tools(calculator.CalculatorEnv())
@@ -62,7 +69,10 @@ class SqliteTest(absltest.TestCase):
         env.query_sql("SELECT COUNT(*) FROM employees"), "COUNT(*)\n40"
     )
     for sql, error in (
-        ("DELETE FROM employees", "readonly"),
+        ("DELETE FROM employees", "not authorized"),
+        # `PRAGMA query_only` could be switched off; ATTACH writes host files.
+        ("PRAGMA query_only = OFF", "not authorized"),
+        ("ATTACH DATABASE 'stray.db' AS x", "not authorized"),
         (
             "SELECT COUNT(*) FROM employees a, employees b, employees c,"
             " employees d",
