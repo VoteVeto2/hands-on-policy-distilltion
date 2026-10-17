@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hands-On Policy Distillation</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: a lab manual. Sticky stage rail on the left (top strip on phones),
+   one reading column, and the token tape as the single bold element. */
+:root {
+  --paper: #f3f6f8;
+  --surface: #ffffff;
+  --ink: #14202e;
+  --muted: #566476;
+  --rule: #d6dde5;
+  --code: #eaeff4;
+  --student: #0d7a70;
+  --student-soft: #d3eeea;
+  --env: #b25a0a;
+  --env-soft: #f8e6cf;
+  --prompt-soft: #e3e8ee;
+  --neg: #c0284d;
+  --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.84rem;
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.55rem;
+  --step-3: 2.2rem;
+  --step-4: clamp(2.3rem, 5.4vw, 3.6rem);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d141c;
+    --surface: #131c27;
+    --ink: #e2e8ef;
+    --muted: #97a5b5;
+    --rule: #263343;
+    --code: #0a1118;
+    --student: #35bfae;
+    --student-soft: #12332f;
+    --env: #e8a04a;
+    --env-soft: #3a2914;
+    --prompt-soft: #1f2a37;
+    --neg: #f2648a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d141c;
+  --surface: #131c27;
+  --ink: #e2e8ef;
+  --muted: #97a5b5;
+  --rule: #263343;
+  --code: #0a1118;
+  --student: #35bfae;
+  --student-soft: #12332f;
+  --env: #e8a04a;
+  --env-soft: #3a2914;
+  --prompt-soft: #1f2a37;
+  --neg: #f2648a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--ink); text-decoration-color: var(--student); text-underline-offset: 3px; }
+a:hover { color: var(--student); }
+:focus-visible { outline: 2px solid var(--student); outline-offset: 2px; border-radius: 3px; }
+code, pre, kbd { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--code); padding: 0.08em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+pre {
+  background: var(--code);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  line-height: 1.5;
+  margin: 0;
+}
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-stretch: 78%;
+  line-height: 1.08;
+  text-wrap: balance;
+  margin: 0;
+}
+h2 { font-size: var(--step-3); font-weight: 800; }
+h3 { font-size: var(--step-1); font-weight: 700; font-stretch: 90%; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 48px;
+  padding-block: 32px 96px;
+}
+nav.rail {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 24px);
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.92rem;
+}
+nav.rail a {
+  display: grid;
+  grid-template-columns: 2.1em 1fr;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-decoration: none;
+  color: var(--muted);
+}
+nav.rail a:hover, nav.rail a.active { background: var(--surface); color: var(--ink); }
+nav.rail a .n { font-family: var(--font-mono); font-size: 0.78rem; color: var(--student); }
+nav.rail a.done .n::after { content: " \2713"; }
+nav.rail .group { margin-top: 14px; margin-bottom: 4px; padding-left: 8px; }
+main { min-width: 0; display: flex; flex-direction: column; gap: 88px; }
+section { display: flex; flex-direction: column; gap: 22px; scroll-margin-top: 24px; }
+.prose { max-width: 68ch; display: flex; flex-direction: column; gap: 14px; }
+
+/* Hero */
+.hero { gap: 26px; }
+.hero h1 { font-size: var(--step-4); font-weight: 850; font-stretch: 72%; letter-spacing: -0.01em; max-width: 18ch; }
+.hero .lede { font-size: var(--step-1); max-width: 60ch; color: var(--muted); }
+.hero .lede strong { color: var(--ink); font-weight: 600; }
+
+/* Token tape */
+.tape {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.tape-controls { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; }
+.stage-pick { display: flex; gap: 4px; flex-wrap: wrap; }
+.stage-pick button {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.stage-pick button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.knob { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 0.82rem; }
+.knob input[type="range"] { width: 110px; accent-color: var(--student); }
+.knob output { min-width: 3.2ch; text-align: right; font-variant-numeric: tabular-nums; }
+.formula { font-family: var(--font-mono); font-size: 0.86rem; color: var(--muted); overflow-x: auto; white-space: nowrap; }
+.formula b { color: var(--ink); font-weight: 600; }
+.tape-note { font-size: 0.92rem; margin-top: -8px; }
+.tokens { display: flex; flex-wrap: wrap; gap: 4px 3px; align-items: flex-end; }
+.tok {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  cursor: default;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  text-align: left;
+}
+.tok { max-width: 100%; }
+.tok .txt { padding: 2px 5px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tok.p .txt { background: var(--prompt-soft); color: var(--muted); }
+.tok.s .txt { background: var(--student-soft); }
+.tok.e .txt { background: var(--env-soft); }
+.tok .bar { height: 46px; position: relative; }
+.tok .bar::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--rule); }
+.tok .bar i { position: absolute; left: 22%; right: 22%; border-radius: 2px; }
+.tok .bar i.pos { background: var(--student); bottom: 50%; }
+.tok .bar i.neg { background: var(--neg); top: 50%; }
+.tok:hover .txt, .tok:focus-visible .txt, .tok.sel .txt { outline: 1.5px solid var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.detail {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 18px;
+  font-variant-numeric: tabular-nums;
+}
+.detail .k { color: var(--muted); }
+.detail .wide { grid-column: 1 / -1; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 0.76rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+tr:last-child td { border-bottom: none; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+/* Memory bars */
+.mem { display: flex; flex-direction: column; gap: 10px; }
+.mem-row { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 12px; align-items: center; font-size: 0.88rem; }
+.mem-track { height: 26px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; display: flex; overflow: hidden; position: relative; }
+.mem-track span { display: flex; align-items: center; padding: 0 6px; font-family: var(--font-mono); font-size: 0.72rem; white-space: nowrap; overflow: hidden; color: var(--ink); }
+.mem-track .t { background: var(--prompt-soft); }
+.mem-track .st { background: var(--student-soft); }
+.mem-track .opt { background: var(--student); color: var(--surface); }
+.mem-track .room { background: repeating-linear-gradient(135deg, var(--paper) 0 6px, var(--prompt-soft) 6px 8px); color: var(--muted); }
+.mem-track .cap { position: absolute; top: -2px; bottom: -2px; border-left: 2px dashed var(--neg); }
+
+/* Diagram */
+.diagram { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; overflow-x: auto; }
+.diagram svg { display: block; min-width: 640px; width: 100%; height: auto; }
+.diagram text { font-family: var(--font-mono); font-size: 12px; fill: var(--ink); }
+.diagram .box { fill: var(--paper); stroke: var(--rule); stroke-width: 1.2; }
+.diagram .box.s { fill: var(--student-soft); stroke: var(--student); }
+.diagram .box.e { fill: var(--env-soft); stroke: var(--env); }
+.diagram .title { font-family: var(--font-display); font-size: 15px; font-weight: 800; font-stretch: 80%; }
+.diagram .sub { fill: var(--muted); font-size: 11px; }
+.diagram .arrow { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+.diagram .head { fill: var(--muted); }
+
+/* Stage cards */
+.stage-head { display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap; }
+.stage-num {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-stretch: 62%;
+  font-size: 3.4rem;
+  line-height: 0.9;
+  color: var(--student);
+  font-variant-numeric: tabular-nums;
+}
+.stage-head .titles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 28px; }
+.block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.block h3 { font-family: var(--font-mono); font-stretch: 100%; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+ul.clean, ol.clean { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.watch { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.watch li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 6px; }
+.watch .dir { font-family: var(--font-mono); font-weight: 600; text-align: center; }
+.dir.up { color: var(--student); }
+.dir.down { color: var(--neg); }
+.dir.flat { color: var(--muted); }
+.cmd { display: flex; flex-direction: column; gap: 6px; }
+.cmd-row { display: flex; gap: 8px; align-items: stretch; }
+.cmd-row pre { flex: 1; min-width: 0; }
+.copy {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.copy:hover { color: var(--ink); }
+.callout {
+  border-left: 3px solid var(--env);
+  background: var(--surface);
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  max-width: 76ch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.callout.key { border-left-color: var(--student); }
+.done-toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 0.9rem; color: var(--muted); cursor: pointer; }
+.done-toggle input { accent-color: var(--student); width: 16px; height: 16px; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.note { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.note h3 { font-size: 1.05rem; }
+.refs { display: flex; flex-direction: column; gap: 8px; padding-left: 1.2em; margin: 0; }
+footer { color: var(--muted); font-size: 0.85rem; }
+
+@media (max-width: 960px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 28px; padding-block: 0 72px; }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--paper); }
+  nav.rail {
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    flex-direction: row;
+    overflow-x: auto;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    padding-block: 10px;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  nav.rail .group { display: none; }
+  nav.rail a { grid-template-columns: auto auto; gap: 6px; }
+  section { scroll-margin-top: 64px; }
+}
+@media (max-width: 640px) {
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .stage-num { font-size: 2.6rem; }
+  .mem-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Sections">
+    <span class="eyebrow group">Start</span>
+    <a href="#idea"><span class="n">&middot;</span><span>The one idea</span></a>
+    <a href="#setup"><span class="n">&middot;</span><span>Setup &amp; budget</span></a>
+    <a href="#map"><span class="n">&middot;</span><span>Code map</span></a>
+    <span class="eyebrow group">Stages</span>
+    <a href="#stage1" data-stage="1"><span class="n">1</span><span>Plain distillation</span></a>
+    <a href="#stage2" data-stage="2"><span class="n">2</span><span>One tool</span></a>
+    <a href="#stage3" data-stage="3"><span class="n">3</span><span>Many tools, many turns</span></a>
+    <a href="#stage4" data-stage="4"><span class="n">4</span><span>Teacher + reward</span></a>
+    <a href="#stage5" data-stage="5"><span class="n">5</span><span>GRPO agent RL</span></a>
+    <span class="eyebrow group">Beyond</span>
+    <a href="#scale"><span class="n">&middot;</span><span>Scale &amp; extend</span></a>
+    <a href="#notes"><span class="n">&middot;</span><span>Field notes</span></a>
+    <a href="#refs"><span class="n">&middot;</span><span>References</span></a>
+  </nav>
+
+  <main>
+    <section class="hero" id="top">
+      <p class="eyebrow">Post-training lab &middot; Qwen3-8B teaches Qwen3-1.7B &middot; Apple M5 Pro or one A100</p>
+      <h1>Every token the student writes gets a grade.</h1>
+      <p class="lede">This guide walks you through a from-scratch pipeline that takes a 1.7B model from <strong>on-policy distillation</strong> to a <strong>tool-using agent trained with RL</strong>. All five stages run the same loop: the student samples, a judge scores, the student updates. What changes is who the judge is and how often it speaks.</p>
+
+      <div class="tape" id="tape">
+        <div class="tape-controls">
+          <div class="stage-pick" role="group" aria-label="Stage">
+            <button type="button" data-stage="1" aria-pressed="true">Stage 1</button>
+            <button type="button" data-stage="2" aria-pressed="false">Stage 2</button>
+            <button type="button" data-stage="3" aria-pressed="false">Stage 3</button>
+            <button type="button" data-stage="4" aria-pressed="false">Stage 4</button>
+            <button type="button" data-stage="5" aria-pressed="false">Stage 5</button>
+          </div>
+          <label class="knob" for="kt">teacher_coef <input id="kt" type="range" min="0" max="2" step="0.1" value="1"><output id="kt-out">1.0</output></label>
+          <label class="knob" for="kr">reward_coef <input id="kr" type="range" min="0" max="2" step="0.1" value="0"><output id="kr-out">0.0</output></label>
+        </div>
+        <p class="formula">A<sub>t</sub> = <b>teacher_coef</b> &middot; (log q(y<sub>t</sub>) &minus; log p(y<sub>t</sub>)) + <b>reward_coef</b> &middot; &Acirc;<sub>group</sub></p>
+        <p class="tape-note" id="tape-caption"></p>
+        <div class="tokens" id="tokens" aria-label="Sampled episode, one chip per token"></div>
+        <div class="legend">
+          <span><i class="sw" style="background: var(--prompt-soft)"></i>prompt (context)</span>
+          <span><i class="sw" style="background: var(--student-soft)"></i>student action (in the loss)</span>
+          <span><i class="sw" style="background: var(--env-soft)"></i>tool result (context, mask 0)</span>
+          <span><i class="sw" style="background: var(--student)"></i>positive advantage</span>
+          <span><i class="sw" style="background: var(--neg)"></i>negative advantage</span>
+        </div>
+        <div class="detail" id="detail" aria-live="polite"></div>
+        <p class="muted" style="font-size: 0.82rem">Illustrative log-probs, chunked into readable pieces; real tokens are smaller. Hover or tap a chip. Bars are clipped at &plusmn;5.</p>
+      </div>
+    </section>
+
+    <section id="idea">
+      <p class="eyebrow">Start here</p>
+      <h2>The one idea</h2>
+      <div class="prose">
+        <p>Post-training methods differ in two ways: <em>whose</em> samples you train on, and <em>how much</em> feedback each sample carries. Supervised fine-tuning trains on someone else's text, so the student never sees its own mistakes. Reinforcement learning trains on the student's own samples, but a whole episode earns one number. On-policy distillation takes the best of both: the student writes, and a stronger teacher grades every token.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Method</th><th>Whose samples</th><th>Feedback</th><th>In this repo</th></tr></thead>
+          <tbody>
+            <tr><td>Supervised fine-tuning</td><td>off-policy (teacher's or dataset's)</td><td>dense, per token</td><td>not used</td></tr>
+            <tr><td>Reinforcement learning</td><td>on-policy (student's)</td><td>sparse, per episode</td><td>stage 5</td></tr>
+            <tr><td>On-policy distillation</td><td>on-policy (student's)</td><td>dense, per token</td><td>stages 1&ndash;3</td></tr>
+            <tr><td>Distillation + reward</td><td>on-policy (student's)</td><td>dense + sparse</td><td>stage 4</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>The bridge between the rows is one line of algebra. Sample y<sub>t</sub> from the student p and treat <code>log q(y<sub>t</sub>) &minus; log p(y<sub>t</sub>)</code> as a reward. Its policy gradient is, in expectation, exactly the gradient of the per-token reverse KL, KL(p&nbsp;&#8741;&nbsp;q). So distillation <em>is</em> RL with a dense reward the teacher computes for every token, and the same clipped policy-gradient loss serves all five stages. <code>opd/losses_test.py</code> checks this identity numerically (<code>test_distillation_advantage_gives_reverse_kl_gradient</code>).</p>
+        <p>Why reverse KL? It is <em>mode-seeking</em>: the student is punished for putting mass where the teacher puts little, and is not forced to cover everything the teacher might say. That suits a smaller student that cannot represent all of a larger teacher.</p>
+      </div>
+      <pre><code># opd/trainer.py, update(): the heart of every stage
+advantages = config.loss.reward_coef * batch.task_advantages[:, None]
+if batch.teacher_logp is not None:
+  teacher_kl = old_logp - batch.teacher_logp          # log p - log q, per token
+  advantages = advantages - config.loss.teacher_coef * teacher_kl
+per_token, clipped = losses.clipped_policy_loss(
+    logp, old_logp, advantages, config.loss.clip_low, config.loss.clip_high)
+loss = (per_token * batch.action_mask).sum() / num_tokens</code></pre>
+    </section>
+
+    <section id="setup">
+      <p class="eyebrow">Before stage 1</p>
+      <h2>Setup and the memory budget</h2>
+      <div class="cmd">
+        <div class="cmd-row"><pre><code>uv venv .venv &amp;&amp; source .venv/bin/activate
+uv pip install -e ".[dev]"
+python -m pytest -q opd        # 2-3 min on CPU, no downloads</code></pre><button class="copy" type="button">Copy</button></div>
+        <div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage1_distill.py:debug --workdir=runs/debug</code></pre><button class="copy" type="button">Copy</button></div>
+      </div>
+      <div class="prose">
+        <p>The <code>:debug</code> preset swaps in Qwen3-0.6B (student) and Qwen3-1.7B (teacher) for four steps. Run it first: it downloads small models and exercises every code path in minutes. Then pick <code>:mps</code> or <code>:a100</code> after the colon. Any config field can be overridden on the command line, for example <code>--config.train.lr=3e-5</code>.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Apple M5 Pro 48 GB &middot; <code>:mps</code></th><th>A100 80 GB &middot; <code>:a100</code></th></tr></thead>
+          <tbody>
+            <tr><td>Backend</td><td>PyTorch MPS, Hugging Face <code>generate</code></td><td>CUDA, bf16 autocast; vLLM via the TRL bridge</td></tr>
+            <tr><td>Student</td><td>Qwen3-1.7B, LoRA rank 32 on a frozen bf16 base</td><td>same; full fine-tuning is opt-in</td></tr>
+            <tr><td>Teacher</td><td>Qwen3-8B, bf16, frozen</td><td>same</td></tr>
+            <tr><td>Prompts per step (stage 1)</td><td class="num">8</td><td class="num">32</td></tr>
+            <tr><td>Tokens per student turn (stage 1)</td><td class="num">512</td><td class="num">1,024</td></tr>
+            <tr><td>Sequences generated in parallel</td><td class="num">16</td><td class="num">64</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="block">
+        <h3>Where the memory goes</h3>
+        <div class="mem" id="mem"></div>
+        <p class="muted" style="font-size: 0.85rem">Weights at 2 bytes per parameter in bf16: Qwen3-8B (8.2B params) &asymp; 16.4 GB, Qwen3-1.7B &asymp; 3.4 GB. LoRA rank 32 on every linear layer is roughly 35M trainable parameters; with fp32 weights, gradients and two Adam moments that is about 0.6 GB (the run log prints the exact count). Full fine-tuning keeps fp32 master weights, gradients and Adam state: 16 bytes per parameter, about 27 GB for 1.7B. The dashed line on the Mac rows is the GPU share macOS allows by default, roughly 75% of RAM (36 GB); the hatched &ldquo;room&rdquo; is what remains for activations, logits and KV caches.</p>
+      </div>
+    </section>
+
+    <section id="map">
+      <p class="eyebrow">Read the code in this order</p>
+      <h2>Code map</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 900 300" role="img" aria-label="Training loop: rollout, score, update, with environment and config">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="box s" x="20" y="40" width="250" height="120" rx="8"/>
+          <text class="title" x="36" y="68">1 &middot; Rollout</text>
+          <text x="36" y="92">rollout.sample_episodes</text>
+          <text x="36" y="110">rollout.generate &middot; rollout._step</text>
+          <text x="36" y="128">chat.encode_prompt / tool_results</text>
+          <text class="sub" x="36" y="148">student samples at T = 1</text>
+
+          <rect class="box" x="325" y="40" width="250" height="120" rx="8"/>
+          <text class="title" x="341" y="68">2 &middot; Score</text>
+          <text x="341" y="92">trainer.collate</text>
+          <text x="341" y="110">trainer.score</text>
+          <text x="341" y="128">teacher / old / ref log-probs</text>
+          <text class="sub" x="341" y="148">frozen forwards, no grad</text>
+
+          <rect class="box s" x="630" y="40" width="250" height="120" rx="8"/>
+          <text class="title" x="646" y="68">3 &middot; Update</text>
+          <text x="646" y="92">trainer.update</text>
+          <text x="646" y="110">losses.clipped_policy_loss</text>
+          <text x="646" y="128">losses.group_advantages</text>
+          <text class="sub" x="646" y="148">AdamW on LoRA weights</text>
+
+          <rect class="box e" x="20" y="210" width="250" height="70" rx="8"/>
+          <text class="title" x="36" y="238">Environment</text>
+          <text x="36" y="260">envs/*.py &middot; tools &middot; grade()</text>
+
+          <rect class="box" x="325" y="210" width="555" height="70" rx="8"/>
+          <text class="title" x="341" y="238">Config</text>
+          <text x="341" y="260">configs/stage*.py: env, teacher_coef, reward_coef, group size</text>
+
+          <path class="arrow" d="M270 100 L322 100" marker-end="url(#arr)"/>
+          <path class="arrow" d="M575 100 L627 100" marker-end="url(#arr)"/>
+          <path class="arrow" d="M755 40 C755 8 145 8 145 37" marker-end="url(#arr)"/>
+          <text class="sub" x="380" y="34">new weights &rarr; next rollout</text>
+          <path class="arrow" d="M120 160 L120 207" marker-end="url(#arr)"/>
+          <path class="arrow" d="M170 207 L170 163" marker-end="url(#arr)"/>
+        </svg>
+      </div>
+      <ol class="clean">
+        <li><code>opd/losses.py</code>: the math of every stage in about 150 lines. Read it first.</li>
+        <li><code>opd/rollout.py</code>: how an episode becomes one token sequence with an action mask.</li>
+        <li><code>opd/chat.py</code>: the Qwen3 chat format, tool schemas, tool-call parsing.</li>
+        <li><code>opd/trainer.py</code>: <code>collate</code>, <code>score</code>, <code>update</code>, <code>train</code>.</li>
+        <li><code>opd/envs/base.py</code>, then one environment such as <code>calculator.py</code>.</li>
+        <li><code>opd/configs/base.py</code> and the five stage configs: the only thing that differs between stages.</li>
+      </ol>
+      <div class="callout key">
+        <p><strong>Outputs of every run</strong> land in <code>--workdir</code>: <code>metrics.jsonl</code> (one JSON line per step), <code>samples.jsonl</code> (decoded episodes, tool results wrapped in <code>[env]&hellip;[/env]</code>), <code>config.json</code>, and checkpoints <code>step_N/</code> and <code>final/</code>. Read samples often. Most RL bugs are visible in the text before they are visible in a curve.</p>
+      </div>
+    </section>
+
+    <section id="stage1" data-stage="1">
+      <div class="stage-head">
+        <span class="stage-num">01</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage1_distill.py</p><h2>Plain on-policy distillation</h2></div>
+      </div>
+      <div class="prose">
+        <p>The student answers GSM8K grade-school math questions. The teacher reads each answer and reports, for every token, how likely it would have been to write that token. Nothing else: no reward, no tools, no reference answers in the loss. The answers are used only to measure accuracy on held-out questions, so you can watch accuracy rise from a signal that never mentions correctness.</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>Knobs</h3>
+          <pre><code>env = "gsm8k"
+loss.teacher_coef = 1.0
+loss.reward_coef = 0.0
+train.samples_per_prompt = 1
+rollout.max_turns = 1
+train.lr = 1e-4      # LoRA (Tinker's OPD recipe)</code></pre>
+        </div>
+        <div class="block">
+          <h3>Read</h3>
+          <ul class="clean">
+            <li><code>losses.token_logprobs</code>: float32, one row at a time.</li>
+            <li><code>trainer.forward_logits</code>: <code>logits_to_keep</code> skips prompt positions.</li>
+            <li><code>trainer.update</code>: the teacher term in the advantage.</li>
+            <li><code>rollout.generate</code>: the sampling overrides and why.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage1_distill.py:mps --workdir=runs/stage1</code></pre><button class="copy" type="button">Copy</button></div></div>
+      <div class="grid2">
+        <div class="block">
+          <h3>Watch</h3>
+          <ul class="watch">
+            <li><span class="dir down">&darr;</span><span><code>teacher_kl</code>: mean per-token reverse KL on sampled tokens. The curve that defines this stage.</span></li>
+            <li><span class="dir up">&uarr;</span><span><code>eval/reward</code>: greedy accuracy on 64 held-out questions.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>teacher_eval/reward</code>: the teacher's accuracy, logged once. Your ceiling.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>entropy</code>, <code>completion_tokens</code>: a sudden drop in either means the student found a degenerate shortcut.</span></li>
+          </ul>
+        </div>
+        <div class="block">
+          <h3>Experiments</h3>
+          <ul class="clean">
+            <li><code>--config.loss.teacher_estimator=full</code>: exact KL over the 152k vocabulary instead of one sample. Compare the <code>teacher_kl</code> curves, and the memory.</li>
+            <li><code>--config.model.student=Qwen/Qwen3-1.7B-Base</code>: a base model has a much larger gap to close, so the effect is bigger.</li>
+            <li>On the A100: <code>--config.rollout.enable_thinking=True</code> with a longer token budget.</li>
+          </ul>
+        </div>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="1"> I ran stage 1 and read a few samples</label>
+    </section>
+
+    <section id="stage2" data-stage="2">
+      <div class="stage-head">
+        <span class="stage-num">02</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage2_single_tool.py</p><h2>Single-tool agent distillation</h2></div>
+      </div>
+      <div class="prose">
+        <p>Now an episode has several turns. The student writes a <code>&lt;tool_call&gt;</code>, the environment runs it and answers with a <code>&lt;tool_response&gt;</code>, and the student continues. Those responses enter the context but are not the student's actions, so their action mask is 0. The teacher still scores every student token, including the tool name and the JSON arguments, conditioned on the tool results it sees in the same context.</p>
+        <p>Run one tool per experiment. Each one teaches something different: the calculator rewards knowing when mental arithmetic fails, SQL rewards reading error messages, JMESPath rewards exploring a document you cannot see.</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>Knobs</h3>
+          <pre><code>env = "calculator"   # or "sqlite", "json"
+rollout.max_turns = 4
+rollout.max_new_tokens = 256        # per turn
+rollout.max_completion_tokens = 1024  # whole episode</code></pre>
+        </div>
+        <div class="block">
+          <h3>Read</h3>
+          <ul class="clean">
+            <li><code>chat.encode_prompt</code>: tool docstrings become JSON schemas in the system prompt.</li>
+            <li><code>chat.encode_tool_results</code>: why tokens are appended, never re-rendered.</li>
+            <li><code>rollout._step</code>: one turn, its tool calls, the mask.</li>
+            <li><code>envs/base.call_tool</code>: failures become error messages, not crashes.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage2_single_tool.py:mps --config.env=sqlite \
+    --config.model.init_checkpoint=runs/stage1/final --workdir=runs/stage2_sqlite</code></pre><button class="copy" type="button">Copy</button></div></div>
+      <div class="grid2">
+        <div class="block">
+          <h3>Watch</h3>
+          <ul class="watch">
+            <li><span class="dir up">&uarr;</span><span><code>eval/reward</code>, and <code>tool_calls</code> per episode.</span></li>
+            <li><span class="dir down">&darr;</span><span><code>tool_errors</code>: malformed calls, unknown tools, SQL errors.</span></li>
+            <li><span class="dir down">&darr;</span><span><code>truncated</code>: episodes that ran out of turns or tokens score 0.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>env_tokens</code>: context the student reads but is never trained on.</span></li>
+          </ul>
+        </div>
+        <div class="block">
+          <h3>Experiments</h3>
+          <ul class="clean">
+            <li>Run all three tools and compare how fast <code>tool_errors</code> falls.</li>
+            <li>Exercise: log <code>teacher_kl</code> separately for tool-call tokens and answer tokens. Where does the student disagree most?</li>
+            <li>Make <code>query_sql</code> return only the first 3 rows and read how the student adapts.</li>
+          </ul>
+        </div>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="2"> I ran stage 2 with at least one tool</label>
+    </section>
+
+    <section id="stage3" data-stage="3">
+      <div class="stage-head">
+        <span class="stage-num">03</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage3_multi_tool.py</p><h2>Many tools, many turns, the student decides</h2></div>
+      </div>
+      <div class="prose">
+        <p>All three tools are offered on every task. The task mix includes single-tool questions, questions that chain two tools (look up a payroll in SQL, then apply a raise with the calculator), and easy questions that need no tool at all. Choosing a tool is just more tokens, and the teacher grades those too: the <code>"name"</code> field of a tool call is where a wrong choice shows up as a large negative advantage.</p>
+        <p><code>MultiToolEnv</code> is an empty class: it inherits the three tools, and the cooperative <code>reset(**task)</code> chain builds both the database and the JSON document.</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>Knobs</h3>
+          <pre><code>env = "multi_tool"
+rollout.max_turns = 6
+rollout.max_completion_tokens = 1536</code></pre>
+        </div>
+        <div class="block">
+          <h3>Watch (per task kind)</h3>
+          <ul class="watch">
+            <li><span class="dir flat">&asymp;0</span><span><code>eval/tool_calls/no_tool</code>: an agent that calls tools for 7&nbsp;+&nbsp;5 is wasting turns.</span></li>
+            <li><span class="dir up">&uarr;</span><span><code>eval/reward/sql+calculator</code>, <code>eval/reward/json+calculator</code>, <code>eval/reward/sql+json</code>.</span></li>
+            <li><span class="dir flat">&asymp;2</span><span><code>eval/tool_calls/sql+calculator</code>: about one call per tool.</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage3_multi_tool.py:mps \
+    --config.model.init_checkpoint=runs/stage2_sqlite/final --workdir=runs/stage3</code></pre><button class="copy" type="button">Copy</button></div></div>
+      <div class="block">
+        <h3>Experiments</h3>
+        <ul class="clean">
+          <li>Change the task weights in <code>envs/multi_tool.py</code> to 50% <code>no_tool</code> and watch whether tool use on tool tasks suffers.</li>
+          <li>Start from the stage 1 checkpoint instead of stage 2 and compare the first 50 steps.</li>
+        </ul>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="3"> I ran stage 3 and checked per-kind metrics</label>
+    </section>
+
+    <section id="stage4" data-stage="4">
+      <div class="stage-head">
+        <span class="stage-num">04</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage4_distill_reward.py</p><h2>Teacher imitation plus task reward</h2></div>
+      </div>
+      <div class="prose">
+        <p>Each prompt is now sampled 4 times. The environment grades each final answer (1 or 0), and each episode's reward minus its group's mean, divided by the group's standard deviation, becomes a sequence-level advantage added to every one of its tokens. The teacher term stays on top, per token.</p>
+        <p>The two signals fail in opposite ways. The teacher can be wrong, and the reward corrects it. The reward is silent whenever all 4 samples agree: <code>zero_advantage_groups</code> reports how often, and in those groups the teacher term is the only thing the student learns from.</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>Knobs</h3>
+          <pre><code>loss.teacher_coef = 1.0
+loss.reward_coef = 1.0
+loss.normalize_std = True   # GRPO; False = Dr. GRPO
+train.samples_per_prompt = 4
+train.prompts_per_step = 4
+train.lr = 5e-5</code></pre>
+        </div>
+        <div class="block">
+          <h3>Watch</h3>
+          <ul class="watch">
+            <li><span class="dir up">&uarr;</span><span><code>reward</code> (training) and <code>eval/reward</code>.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>zero_advantage_groups</code>: share of prompts where the reward taught nothing.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>teacher_kl</code>: may level off or rise a little as the reward pulls the student its own way.</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage4_distill_reward.py:mps \
+    --config.model.init_checkpoint=runs/stage3/final --workdir=runs/stage4</code></pre><button class="copy" type="button">Copy</button></div></div>
+      <div class="block">
+        <h3>Experiments</h3>
+        <ul class="clean">
+          <li>Exercise: anneal <code>teacher_coef</code> from 1 to 0 over the run (a few lines in <code>trainer.train</code>). This is the bridge into stage 5.</li>
+          <li><code>--config.loss.normalize_std=False</code> and compare reward curves.</li>
+          <li>Set <code>reward_coef</code> to 3 and watch whether <code>teacher_kl</code> climbs.</li>
+        </ul>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="4"> I ran stage 4 and compared it with stage 3</label>
+    </section>
+
+    <section id="stage5" data-stage="5">
+      <div class="stage-head">
+        <span class="stage-num">05</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage5_grpo.py</p><h2>GRPO: agent RL from environment feedback</h2></div>
+      </div>
+      <div class="prose">
+        <p>No teacher. The only grade is whether the final answer is right, and the only hints about how to get there come from the environment itself: SQL error messages, empty query results, calculator outputs. Without the teacher's 16 GB the student samples 8 episodes per prompt.</p>
+        <p>Each rollout batch now feeds two optimizer steps. The second step trains on samples drawn by the policy before the first step, so the probability ratio moves away from 1 and the PPO clip starts to bind: watch <code>clip_frac</code>.</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>Knobs</h3>
+          <pre><code>model.teacher = ""
+loss.teacher_coef = 0.0
+loss.reward_coef = 1.0
+loss.clip_low = 0.2
+loss.clip_high = 0.28    # DAPO clip-higher
+loss.ref_kl_coef = 0.0   # try 1e-3
+train.samples_per_prompt = 8
+train.num_minibatches = 2
+train.lr = 1e-5          # Tinker's math RL recipe</code></pre>
+        </div>
+        <div class="block">
+          <h3>Watch</h3>
+          <ul class="watch">
+            <li><span class="dir up">&uarr;</span><span><code>reward</code>, <code>eval/reward</code>, per-kind rewards.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>entropy</code>: a fast collapse toward 0 means the policy stopped exploring.</span></li>
+            <li><span class="dir flat">&gt;0</span><span><code>clip_frac</code>: small but nonzero with two minibatches.</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>ref_kl</code> (when enabled): with LoRA the reference is free, the same model with adapters switched off.</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage5_grpo.py:mps \
+    --config.model.init_checkpoint=runs/stage4/final --workdir=runs/stage5</code></pre><button class="copy" type="button">Copy</button></div></div>
+      <div class="block">
+        <h3>Experiments</h3>
+        <ul class="clean">
+          <li>Start from the original Qwen3-1.7B instead of stage 4: how much did distillation buy you in RL steps?</li>
+          <li><code>--config.loss.ref_kl_coef=1e-3</code> and compare entropy and reward.</li>
+          <li>Learning-rate sweep: 1e-5, 3e-5, 1e-4. RL is far more sensitive to it than distillation.</li>
+        </ul>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="5"> I ran stage 5 and read failed episodes</label>
+    </section>
+
+    <section id="scale">
+      <p class="eyebrow">Beyond one machine</p>
+      <h2>Scale it, then build on it</h2>
+      <div class="prose">
+        <p><code>opd/trainer.py</code> is written to be read. To go past one device, <code>opd/trl_grpo.py</code> hands the same environment classes and the same reward to TRL's <code>GRPOTrainer</code>, which adds vLLM generation and multi-GPU training. The environments need no changes: they already follow TRL's <code>environment_factory</code> convention (<code>reset(**task)</code>; every other public method is a tool).</p>
+      </div>
+      <div class="cmd">
+        <div class="cmd-row"><pre><code>uv pip install -e "third_party/trl[vllm]"      # Linux + CUDA
+python -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl
+accelerate launch -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl</code></pre><button class="copy" type="button">Copy</button></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>This repo</th><th>TRL GRPOConfig</th></tr></thead>
+          <tbody>
+            <tr><td><code>train.samples_per_prompt</code></td><td><code>num_generations</code></td></tr>
+            <tr><td><code>train.num_minibatches</code></td><td>optimizer steps per generation batch (<code>steps_per_generation</code>)</td></tr>
+            <tr><td><code>loss.clip_low</code> / <code>clip_high</code></td><td><code>epsilon</code> / <code>epsilon_high</code></td></tr>
+            <tr><td><code>loss.ref_kl_coef</code></td><td><code>beta</code></td></tr>
+            <tr><td>token-mean loss</td><td><code>loss_type="dapo"</code></td></tr>
+            <tr><td><code>loss.normalize_std</code></td><td><code>scale_rewards="group"</code> or <code>"none"</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="block">
+        <h3>Add your own environment</h3>
+        <pre><code># opd/envs/weather.py
+from opd.envs import base
+
+class WeatherEnv(base.Env):
+
+  def reset(self, **task) -> None:
+    super().reset(**task)
+    self._city_temps = task["city_temps"]
+
+  def get_temperature(self, city: str) -> str:
+    """Returns today's temperature in a city.
+
+    Args:
+      city: City name, for example "Oslo".
+
+    Returns:
+      The temperature in Celsius, or an error message.
+    """
+    return str(self._city_temps[city])
+
+
+def sample_task(rng, split) -&gt; base.Task:
+  ...  # {"question": ..., "answer": ..., "kind": "weather", "city_temps": {...}}
+
+SPEC = base.EnvSpec(WeatherEnv, sample_task)
+# Then add "weather": weather.SPEC to opd/envs/registry.py and set --config.env=weather.</code></pre>
+        <p class="muted" style="font-size: 0.88rem">The docstring is the tool's API documentation for the model: transformers turns the type hints and the Google-style <code>Args:</code> section into the JSON schema in the system prompt.</p>
+      </div>
+    </section>
+
+    <section id="notes">
+      <p class="eyebrow">Things that bit while building this</p>
+      <h2>Field notes</h2>
+      <div class="notes">
+        <div class="note">
+          <h3>Silent top-k sampling</h3>
+          <p>transformers 5.x applies <code>top_k=50</code> when you pass only <code>do_sample=True</code>, and Qwen3 checkpoints ship a generation config with temperature 0.6, top-k 20, top-p 0.95. Truncated samples are not from the policy whose log-probs you train on. Measured on a tiny random model: 400 one-token samples gave exactly 50 distinct tokens with defaults, over 100 with the overrides in <code>rollout.generate</code>.</p>
+        </div>
+        <div class="note">
+          <h3>Re-rendering rewrites history</h3>
+          <p>Qwen3's chat template drops the empty <code>&lt;think&gt;&lt;/think&gt;</code> block from past assistant turns. Rebuild a multi-turn episode from messages and the tokens differ from what the student sampled. The rollout appends tool results as tokens instead; <code>chat_test.py</code> shows both behaviours.</p>
+        </div>
+        <div class="note">
+          <h3>bf16 swallows small updates</h3>
+          <p>bf16 keeps 8 bits of mantissa, so an update smaller than about 1/256 of a weight rounds away. Full fine-tuning therefore keeps fp32 master weights under bf16 autocast; LoRA keeps a bf16 base frozen and its adapters in fp32.</p>
+        </div>
+        <div class="note">
+          <h3>The vocabulary is the memory hog</h3>
+          <p>One 1,024-token row of float32 logits over Qwen3's 151,936-token vocabulary is 622 MB. The code computes log-probs one row at a time, and <code>logits_to_keep</code> skips positions inside the shared prompt.</p>
+        </div>
+        <div class="note">
+          <h3>Unbiased is not the same as useful</h3>
+          <p>On a toy pair of tiny models, the exact-KL estimator cut KL from 3.9 to 2.3 nats in 30 steps, while the single-sample estimator stayed flat at 64 tokens per step and fell from 3.9 to 3.1 at 512. Same expected gradient, very different variance. Real Qwen3 pairs start much closer than the toy pair, which keeps the variance lower.</p>
+        </div>
+        <div class="note">
+          <h3>Groups that agree teach nothing</h3>
+          <p>With binary rewards, a prompt the student always solves (or never solves) has zero group advantage. Too easy or too hard and RL stalls. <code>zero_advantage_groups</code> is the first metric to check when <code>reward</code> is flat.</p>
+        </div>
+        <div class="note">
+          <h3>Same family is not same vocabulary</h3>
+          <p>Token-level distillation compares log-probs of the same token ids, so the trainer refuses mismatched tokenizers. Within a family, checkpoints can still pad the output layer differently (Qwen2.5-7B: 152,064 rows; Qwen2.5-0.5B: 151,936), which the exact-KL path handles by comparing the shared prefix.</p>
+        </div>
+        <div class="note">
+          <h3>Truncation is a reward of zero</h3>
+          <p>An episode that runs out of turns or tokens has no boxed answer and scores 0. If <code>truncated</code> climbs, the student is not being punished for being wrong; it is being punished for being long. Raise the budget before you blame the method.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="refs">
+      <p class="eyebrow">Sources</p>
+      <h2>References</h2>
+      <ol class="refs">
+        <li>Thinking Machines Lab, <a href="https://thinkingmachines.ai/blog/on-policy-distillation/">On-Policy Distillation</a> (2025), and the <a href="https://github.com/thinking-machines-lab/tinker-cookbook/tree/main/tinker_cookbook/distillation">Tinker cookbook implementation</a> this repo's advantage follows.</li>
+        <li>Agarwal et al., <a href="https://huggingface.co/papers/2306.13649">On-Policy Distillation of Language Models: Learning from Self-Generated Mistakes</a> (GKD, 2023).</li>
+        <li>Qwen Team, <a href="https://arxiv.org/abs/2505.09388">Qwen3 Technical Report</a> (2025): strong-to-weak distillation, off-policy then on-policy.</li>
+        <li>Shao et al., <a href="https://huggingface.co/papers/2402.03300">DeepSeekMath</a> (2024): GRPO.</li>
+        <li>Yu et al., <a href="https://huggingface.co/papers/2503.14476">DAPO</a> (2025): clip-higher, token-level loss.</li>
+        <li>Liu et al., <a href="https://huggingface.co/papers/2503.20783">Understanding R1-Zero-Like Training</a> (Dr. GRPO, 2025).</li>
+        <li>Schulman et al., <a href="https://arxiv.org/abs/1707.06347">Proximal Policy Optimization</a> (2017), and Schulman, <a href="http://joschu.net/blog/kl-approx.html">Approximating KL Divergence</a> (k3).</li>
+        <li>Thinking Machines Lab, <a href="https://thinkingmachines.ai/blog/lora/">LoRA Without Regret</a> (2025).</li>
+        <li>Hugging Face TRL, <a href="https://huggingface.co/docs/trl/grpo_trainer">GRPO Trainer: agent training</a> and <a href="https://huggingface.co/docs/trl/distillation_trainer">Distillation Trainer</a>.</li>
+      </ol>
+      <footer>Progress checkmarks are stored in this browser only.</footer>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  // ----- Token tape -------------------------------------------------------
+  // k: p = prompt, s = student action, e = environment. lp / lq: log-probs
+  // under the student p and teacher q (illustrative).
+  const P = (t) => ({ t, k: "p" });
+  const E = (t) => ({ t, k: "e" });
+  const S = (t, lp, lq) => ({ t, k: "s", lp, lq });
+
+  const gsm8k = [
+    P("… Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether … assistant\\n"),
+    S("In", -0.4, -0.5), S(" May", -0.3, -0.2), S(" she", -0.2, -0.2), S(" sold", -0.1, -0.1),
+    S(" 48", -0.3, -0.2), S(" *", -0.9, -6.2), S(" 2", -0.1, -0.3), S(" =", -0.05, -0.05),
+    S(" 96", -0.1, -0.2), S(" clips", -0.6, -0.4), S(".", -0.1, -0.1), S(" Altogether", -1.2, -0.9),
+    S(" 48", -0.1, -0.1), S(" +", -0.1, -0.1), S(" 96", -0.1, -0.4), S(" =", -0.05, -0.05),
+    S(" \\boxed{144}", -0.2, -0.9), S("<|im_end|>", -0.1, -0.1),
+  ];
+  const calculator = [
+    P("… # Tools … calculator … user\\nCompute 48213 * 9127 - 3311. … assistant\\n"),
+    S("<tool_call>", -0.7, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.05),
+    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\":", -0.1, -0.1), S(" \"48213 * 9127 - 3311\"}}", -0.4, -0.3),
+    S("</tool_call>", -0.05, -0.05), S("<|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\n440036740\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("The", -0.9, -0.6), S(" result", -0.5, -0.5), S(" is", -0.2, -0.2), S(" \\boxed{440036740}", -0.1, -0.1), S("<|im_end|>", -0.05, -0.05),
+  ];
+  const multiTool = [
+    P("… # Tools … calculator, json_query, query_sql … user\\nEvery employee in the Sales department gets a 5% raise. What will the department's total annual salary be after the raise? … assistant\\n"),
+    S("<tool_call>", -0.3, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"json_query\",", -0.4, -4.8),
+    S(" \"arguments\":", -0.05, -0.1), S(" {\"expression\": \"employees[?department=='Sales']\"}}", -0.6, -1.9),
+    S("</tool_call><|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\nnull\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("<tool_call>", -0.2, -0.1), S("{\"name\":", -0.05, -0.05), S(" \"query_sql\",", -0.3, -0.1),
+    S(" \"arguments\":", -0.05, -0.05), S(" {\"sql\": \"SELECT SUM(salary) FROM employees WHERE department = 'Sales'\"}}", -0.7, -0.5),
+    S("</tool_call><|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\nSUM(salary)\\n512750\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("<tool_call>", -0.4, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.1),
+    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\": \"512750 * 1.05\"}}", -0.5, -0.4),
+    S("</tool_call><|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\n538387.5\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("The", -0.6, -0.5), S(" new", -0.4, -0.3), S(" total", -0.3, -0.3), S(" is", -0.1, -0.1),
+    S(" \\boxed{538388}", -0.5, -0.3), S("<|im_end|>", -0.05, -0.05),
+  ];
+
+  // Group of 4 with rewards [1, 1, 0, 0]: this correct episode gets
+  // (1 - 0.5) / std([1, 1, 0, 0]) = 0.5 / 0.577 = +0.87.
+  const STAGES = {
+    1: { tape: gsm8k, kt: 1, kr: 0, adv: 0, note: "the teacher flags the one wrong operator; correct tokens get almost nothing" },
+    2: { tape: calculator, kt: 1, kr: 0, adv: 0, note: "tool results are context: no bar, no gradient" },
+    3: { tape: multiTool, kt: 1, kr: 0, adv: 0, note: "choosing the wrong tool is a single expensive token" },
+    4: { tape: multiTool, kt: 1, kr: 1, adv: 0.87, note: "the episode was right (+0.87 everywhere), but the teacher still marks the wrong tool" },
+    5: { tape: multiTool, kt: 0, kr: 1, adv: 0.87, note: "sparse credit: every token, the wrong tool call included, gets the same +0.87" },
+  };
+
+  const tokensEl = document.getElementById("tokens");
+  const detailEl = document.getElementById("detail");
+  const captionEl = document.getElementById("tape-caption");
+  const kt = document.getElementById("kt");
+  const kr = document.getElementById("kr");
+  const ktOut = document.getElementById("kt-out");
+  const krOut = document.getElementById("kr-out");
+  let stage = 1;
+  let selected = null;
+
+  const fmt = (x) => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(2);
+
+  function advantage(tok) {
+    const s = STAGES[stage];
+    return Number(kt.value) * (tok.lq - tok.lp) + Number(kr.value) * s.adv;
+  }
+
+  function showDetail(tok) {
+    if (!tok) {
+      detailEl.innerHTML = '<span class="wide k">Select a token to see its numbers.</span>';
+      return;
+    }
+    if (tok.k !== "s") {
+      const what = tok.k === "p" ? "Prompt: the student conditions on it." : "Tool result: written by the environment, so action_mask = 0. Both models read it; neither is trained on it.";
+      detailEl.innerHTML = `<span class="wide">${escapeHtml(tok.t)}</span><span class="wide k">${what}</span>`;
+      return;
+    }
+    const s = STAGES[stage];
+    const teacherTerm = Number(kt.value) * (tok.lq - tok.lp);
+    const taskTerm = Number(kr.value) * s.adv;
+    detailEl.innerHTML = `
+      <span class="wide">${escapeHtml(tok.t)}</span>
+      <span><span class="k">log p (student)</span> ${tok.lp.toFixed(2)}</span>
+      <span><span class="k">log q (teacher)</span> ${tok.lq.toFixed(2)}</span>
+      <span><span class="k">teacher term</span> ${fmt(teacherTerm)}</span>
+      <span><span class="k">task term</span> ${fmt(taskTerm)}</span>
+      <span><span class="k">advantage A<sub>t</sub></span> <b>${fmt(teacherTerm + taskTerm)}</b></span>`;
+  }
+
+  function escapeHtml(text) {
+    return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  function render() {
+    const s = STAGES[stage];
+    tokensEl.innerHTML = "";
+    captionEl.textContent = `Stage ${stage}: ${s.note}.`;
+    s.tape.forEach((tok, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tok " + tok.k + (selected === i ? " sel" : "");
+      const txt = document.createElement("span");
+      txt.className = "txt";
+      txt.textContent = tok.t.length > 70 ? tok.t.slice(0, 68) + "…" : tok.t;
+      const bar = document.createElement("span");
+      bar.className = "bar";
+      if (tok.k === "s") {
+        const a = advantage(tok);
+        const h = Math.min(Math.abs(a), 5) / 5 * 50;
+        const fill = document.createElement("i");
+        fill.className = a >= 0 ? "pos" : "neg";
+        fill.style.height = h + "%";
+        bar.appendChild(fill);
+        btn.setAttribute("aria-label", `${tok.t}: advantage ${fmt(a)}`);
+      } else {
+        btn.setAttribute("aria-label", (tok.k === "p" ? "prompt" : "tool result") + ": " + tok.t);
+      }
+      btn.append(txt, bar);
+      const pick = () => { selected = i; showDetail(tok); tokensEl.querySelectorAll(".tok").forEach((el, j) => el.classList.toggle("sel", j === i)); };
+      btn.addEventListener("mouseenter", pick);
+      btn.addEventListener("focus", pick);
+      btn.addEventListener("click", pick);
+      tokensEl.appendChild(btn);
+    });
+    const current = selected !== null ? s.tape[selected] : s.tape.find((t) => t.k === "s" && Math.abs(t.lq - t.lp) > 3) || null;
+    if (selected === null && current) selected = s.tape.indexOf(current);
+    tokensEl.querySelectorAll(".tok").forEach((el, j) => el.classList.toggle("sel", j === selected));
+    showDetail(current);
+  }
+
+  function setStage(n) {
+    stage = n;
+    selected = null;
+    const s = STAGES[n];
+    kt.value = s.kt;
+    kr.value = s.kr;
+    ktOut.textContent = Number(kt.value).toFixed(1);
+    krOut.textContent = Number(kr.value).toFixed(1);
+    document.querySelectorAll(".stage-pick button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.stage) === n)));
+    render();
+  }
+
+  document.querySelectorAll(".stage-pick button").forEach((b) => b.addEventListener("click", () => setStage(Number(b.dataset.stage))));
+  [kt, kr].forEach((input) => input.addEventListener("input", () => {
+    ktOut.textContent = Number(kt.value).toFixed(1);
+    krOut.textContent = Number(kr.value).toFixed(1);
+    render();
+  }));
+  setStage(1);
+
+  // ----- Memory budget ----------------------------------------------------
+  // Weights and optimizer state in GB; "room" is what is left for
+  // activations, logits and KV caches under the device limit.
+  const MEM = [
+    { label: "Mac, stages 1–4", total: 48, limit: 36, parts: [["t", 16.4, "teacher 16.4"], ["st", 3.4, "student 3.4"], ["opt", 0.6, ""]] },
+    { label: "Mac, stage 5", total: 48, limit: 36, parts: [["st", 3.4, "student 3.4"], ["opt", 0.6, ""]] },
+    { label: "A100, LoRA", total: 80, limit: 80, parts: [["t", 16.4, "teacher 16.4"], ["st", 3.4, "3.4"], ["opt", 0.6, ""]] },
+    { label: "A100, full fine-tune", total: 80, limit: 80, parts: [["t", 16.4, "teacher 16.4"], ["opt", 27.2, "fp32 student + grads + Adam 27.2"]] },
+  ];
+  const memEl = document.getElementById("mem");
+  MEM.forEach((row) => {
+    const r = document.createElement("div");
+    r.className = "mem-row";
+    const label = document.createElement("span");
+    label.textContent = `${row.label} (${row.total} GB)`;
+    const track = document.createElement("div");
+    track.className = "mem-track";
+    const used = row.parts.reduce((sum, part) => sum + part[1], 0);
+    const room = Math.round((row.limit - used) * 10) / 10;
+    row.parts.concat([["room", room, `room ${room}`]]).forEach(([cls, gb, text]) => {
+      const seg = document.createElement("span");
+      seg.className = cls;
+      seg.style.width = (gb / row.total * 100) + "%";
+      seg.textContent = text;
+      seg.title = text || `${gb} GB`;
+      track.appendChild(seg);
+    });
+    if (row.limit < row.total) {
+      const cap = document.createElement("i");
+      cap.className = "cap";
+      cap.style.left = (row.limit / row.total * 100) + "%";
+      cap.title = "macOS default GPU limit, ~75% of RAM";
+      track.appendChild(cap);
+    }
+    r.append(label, track);
+    memEl.appendChild(r);
+  });
+
+  // ----- Copy buttons -----------------------------------------------------
+  document.querySelectorAll(".copy").forEach((btn) => btn.addEventListener("click", () => {
+    const code = btn.parentElement.querySelector("code");
+    const text = code.textContent;
+    const done = () => { btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy"), 1400); };
+    const fallback = () => {
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.textContent = "Selected";
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+  }));
+
+  // ----- Progress (this browser only) -------------------------------------
+  const KEY = "opd-guide-progress";
+  let progress = {};
+  try { progress = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { progress = {}; }
+  function paintProgress() {
+    document.querySelectorAll("nav.rail a[data-stage]").forEach((a) => a.classList.toggle("done", Boolean(progress[a.dataset.stage])));
+  }
+  document.querySelectorAll("input[data-done]").forEach((box) => {
+    box.checked = Boolean(progress[box.dataset.done]);
+    box.addEventListener("change", () => {
+      progress[box.dataset.done] = box.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(progress)); } catch (e) { /* storage unavailable */ }
+      paintProgress();
+    });
+  });
+  paintProgress();
+
+  // ----- Active section in the rail ---------------------------------------
+  const links = Array.from(document.querySelectorAll("nav.rail a"));
+  const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          links.forEach((a) => a.classList.remove("active"));
+          const link = byId.get(entry.target.id);
+          if (link) link.classList.add("active");
+        }
+      });
+    }, { rootMargin: "-30% 0px -60% 0px" });
+    document.querySelectorAll("main section[id]").forEach((s) => observer.observe(s));
+  }
+})();
+</script>
+</body>
+</html>
