@@ -75,8 +75,8 @@ def _by_row(
 ) -> torch.Tensor:
   """Applies `fn` to one sequence at a time and stacks the results.
 
-  A float32 [T, V] row is ~0.6 GB at T=1k with Qwen3's 152k vocabulary, and
-  float32 matters: bf16 log-softmax over 152k entries loses precision. Looping
+  A float32 [T, V] row is ~1 GB at T=1k with Qwen3.5's 248k vocabulary, and
+  float32 matters: bf16 log-softmax over 248k entries loses precision. Looping
   over rows alone does not bound memory under autograd, because every row's
   float32 intermediates would be kept for the backward pass. Activation
   checkpointing keeps only the input row and recomputes the rest in backward.

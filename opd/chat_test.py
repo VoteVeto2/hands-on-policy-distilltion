@@ -14,7 +14,7 @@ class EncodeTest(absltest.TestCase):
   def test_tool_round_trip_matches_chatml_format(self):
     prompt = chat.encode_prompt(self.tokenizer, "Q?", [], enable_thinking=False)
     sampled = self.tokenizer.encode(
-        '<tool_call>\n{"name": "f", "arguments": {}}\n</tool_call><|im_end|>',
+        "<tool_call>\n<function=f>\n</function>\n</tool_call><|im_end|>",
         add_special_tokens=False,
     )
     results = chat.encode_tool_results(
@@ -24,7 +24,7 @@ class EncodeTest(absltest.TestCase):
     self.assertEndsWith(
         text,
         "<|im_start|>assistant\n<think>\n\n</think>\n\n"
-        '<tool_call>\n{"name": "f", "arguments": {}}\n</tool_call><|im_end|>\n'
+        "<tool_call>\n<function=f>\n</function>\n</tool_call><|im_end|>\n"
         "<|im_start|>user\n<tool_response>\n4\n</tool_response>\n"
         "<tool_response>\n5\n</tool_response><|im_end|>\n"
         "<|im_start|>assistant\n<think>\n\n</think>\n\n",
@@ -32,7 +32,7 @@ class EncodeTest(absltest.TestCase):
 
   def test_rerendering_history_would_change_sampled_tokens(self):
     # Why rollouts append tokens instead of re-rendering the conversation:
-    # Qwen3's template drops the empty think block of past assistant turns.
+    # Qwen3.5's template drops the empty think block of past assistant turns.
     messages = [
         {"role": "user", "content": "Q?"},
         {"role": "assistant", "content": "<think>\n\n</think>\n\nA."},
@@ -55,20 +55,22 @@ class ParseTest(absltest.TestCase):
 
   def test_parse_tool_calls_keeps_order(self):
     text = (
-        "<tool_call>not json</tool_call>I will compute."
-        ' <tool_call>\n{"name": "calculator", "arguments":'
-        ' {"expression": "2*3"}}\n</tool_call><tool_call>{"name": 1}'
-        '</tool_call><tool_call>{"name": "f", "arguments": {}'
-        '<tool_call>{"name": "g"}</tool_call>'
+        "<tool_call>not a function</tool_call>I will compute.\n\n"
+        "<tool_call>\n<function=calculator>\n<parameter=expression>\n2*3\n"
+        "</parameter>\n</function>\n</tool_call>\n"
+        "<tool_call>\n<function=f>\n</function>\n</tool_call>\n"
+        "<tool_call>\n<function=g>\n<parameter=x>\n1\n</parameter>\n"
+        "<tool_call>\n<function=query_sql>\n<parameter=sql>\nSELECT 1\n"
+        "FROM t;\n</parameter>\n</function>\n</tool_call>"
     )
     self.assertEqual(
         chat.parse_tool_calls(text),
         [
-            None,  # Invalid JSON.
+            None,  # No <function=...> block.
             chat.ToolCall("calculator", {"expression": "2*3"}),
-            None,  # Name is not a string.
+            chat.ToolCall("f", {}),
             None,  # Unclosed: must not swallow the next call.
-            chat.ToolCall("g", {}),
+            chat.ToolCall("query_sql", {"sql": "SELECT 1\nFROM t;"}),
         ],
     )
 

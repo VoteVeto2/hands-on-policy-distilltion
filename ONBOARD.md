@@ -1,7 +1,7 @@
 # Onboarding
 
-A hands-on post-training pipeline: on-policy distillation from Qwen3-8B to
-Qwen3-1.7B, growing into tool-using agents and GRPO. Open
+A hands-on post-training pipeline: on-policy distillation from Qwen3.5-9B to
+Qwen3.5-2B, growing into tool-using agents and GRPO. Open
 `.onboard/guide.html` in a browser for the step-by-step walkthrough; this file
 is the short version.
 
@@ -22,6 +22,7 @@ TRL, for the TRL backend (`opd/trl_train.py`), is pinned as a git submodule in
 git submodule update --init trl
 uv pip install -e trl --config-settings editable_mode=compat              # any machine
 uv pip install -e "trl[vllm]" --config-settings editable_mode=compat      # Linux + CUDA only (A100)
+uv pip install flash-linear-attention                                     # Linux + CUDA only (A100)
 ```
 
 Notes:
@@ -32,8 +33,13 @@ Notes:
   an empty namespace package).
 - vLLM needs Linux with a CUDA GPU. On the Mac, everything runs on PyTorch's
   MPS backend without vLLM.
-- The first run downloads Qwen3-1.7B (~3.4 GB) and Qwen3-8B (~16.4 GB) from
-  the Hugging Face Hub, and GSM8K for stage 1.
+- Three in four Qwen3.5 layers are Gated DeltaNet (linear attention).
+  `flash-linear-attention` gives transformers their Triton kernels; without it
+  (always on the Mac) it falls back to a correct but much slower PyTorch
+  implementation. vLLM ships its own kernels.
+- The first run downloads Qwen3.5-2B (~4.5 GB) and Qwen3.5-9B (~19.3 GB) from
+  the Hugging Face Hub, and GSM8K for stage 1. Both checkpoints include a
+  vision tower; the tasks here are text only.
 
 ## Check the install
 
@@ -41,7 +47,7 @@ Notes:
 python -m pytest -q opd     # ~2 minutes on CPU, no downloads; TRL tests skip without TRL
 ```
 
-Then a minutes-long smoke run with the smallest Qwen3 models:
+Then a minutes-long smoke run with the smallest Qwen3.5 models:
 
 ```bash
 python -m opd.main --config=opd/configs/stage1_distill.py:debug --workdir=runs/debug
@@ -99,7 +105,7 @@ term.
 | ---- | ------------ |
 | `opd/losses.py` | The math of every stage: log-probs, reverse KL, group advantages, clipped policy loss. |
 | `opd/rollout.py` | Multi-turn sampling: student turns (action mask 1) and tool results (mask 0). |
-| `opd/chat.py` | Qwen3 / ChatML prompt rendering and tool-call parsing. |
+| `opd/chat.py` | Qwen3.5 / ChatML prompt rendering and tool-call parsing. |
 | `opd/trainer.py` | The loop: rollout, score with frozen models, update. |
 | `opd/models.py` | Loading the student (LoRA or full), teacher and reference. |
 | `opd/envs/` | Calculator, SQLite, JSON and multi-tool environments; GSM8K prompts. |

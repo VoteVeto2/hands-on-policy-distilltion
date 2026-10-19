@@ -58,8 +58,8 @@ class StepTest(absltest.TestCase):
     episode = rollout.Episode(task={"answer": "6"}, group=0, prompt_ids=[1])
     call = self._step(
         episode,
-        '<tool_call>\n{"name": "calculator", "arguments": {"expression":'
-        ' "2*3"}}\n</tool_call><|im_end|>',
+        "<tool_call>\n<function=calculator>\n<parameter=expression>\n2*3\n"
+        "</parameter>\n</function>\n</tool_call><|im_end|>",
     )
     self.assertFalse(episode.done)
     self.assertEqual(episode.num_tool_calls, 1)
@@ -79,8 +79,8 @@ class StepTest(absltest.TestCase):
     episode = rollout.Episode(task={}, group=0, prompt_ids=[1])
     self._step(
         episode,
-        '<tool_call>{"name": "calculator", "arguments": {"expression": "1"}}'
-        "</tool_call><|im_end|>",
+        "<tool_call>\n<function=calculator>\n<parameter=expression>\n1\n"
+        "</parameter>\n</function>\n</tool_call><|im_end|>",
         last_turn=True,
     )
     self.assertTrue(episode.truncated)
@@ -91,14 +91,17 @@ class StepTest(absltest.TestCase):
     self._step(
         episode,
         "<tool_call>{oops}</tool_call>"
-        '<tool_call>{"name": "calculator", "arguments": {"expression": "2*3"}}'
-        "</tool_call><|im_end|>",
+        "<tool_call>\n<function=calculator>\n<parameter=expression>\n2*3\n"
+        "</parameter>\n</function>\n</tool_call><|im_end|>",
     )
     text = rollout.render(episode, self.tokenizer)
     self.assertLess(text.index("Error: malformed"), text.index("\n6\n"))
 
   def test_turns_that_end_the_episode(self):
-    call = '<tool_call>{"name": "calculator", "arguments": {"expression": "1"}}'
+    call = (
+        "<tool_call>\n<function=calculator>\n<parameter=expression>\n1\n"
+        "</parameter>\n</function>\n"
+    )
     for turn in (
         # Ends with <|endoftext|>: the conversation is over.
         call + "</tool_call><|endoftext|>",

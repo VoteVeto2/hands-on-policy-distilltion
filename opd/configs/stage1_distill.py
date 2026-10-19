@@ -1,4 +1,4 @@
-"""Stage 1: plain on-policy distillation, Qwen3-8B -> Qwen3-1.7B, on GSM8K.
+"""Stage 1: plain on-policy distillation, Qwen3.5-9B -> Qwen3.5-2B, on GSM8K.
 
 The student answers GSM8K questions; the teacher scores every token the
 student wrote. No reward, no tools: advantage = log q(y_t) - log p(y_t).

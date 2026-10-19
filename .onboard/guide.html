@@ -357,9 +357,9 @@ footer { color: var(--muted); font-size: 0.85rem; }
 
   <main>
     <section class="hero" id="top">
-      <p class="eyebrow">Post-training lab &middot; Qwen3-8B teaches Qwen3-1.7B &middot; Apple M5 Pro or one A100</p>
+      <p class="eyebrow">Post-training lab &middot; Qwen3.5-9B teaches Qwen3.5-2B &middot; Apple M5 Pro or one A100</p>
       <h1>Every token the student writes gets a grade.</h1>
-      <p class="lede">This guide walks you through a from-scratch pipeline that takes a 1.7B model from <strong>on-policy distillation</strong> to a <strong>tool-using agent trained with RL</strong>. All five stages run the same loop: the student samples, a judge scores, the student updates. What changes is who the judge is and how often it speaks.</p>
+      <p class="lede">This guide walks you through a from-scratch pipeline that takes a 2B model from <strong>on-policy distillation</strong> to a <strong>tool-using agent trained with RL</strong>. All five stages run the same loop: the student samples, a judge scores, the student updates. What changes is who the judge is and how often it speaks.</p>
 
       <div class="tape" id="tape">
         <div class="tape-controls">
@@ -430,15 +430,15 @@ python -m pytest -q opd        # 2-3 min on CPU, no downloads</code></pre><butto
         <div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage1_distill.py:debug --workdir=runs/debug</code></pre><button class="copy" type="button">Copy</button></div>
       </div>
       <div class="prose">
-        <p>The <code>:debug</code> preset swaps in Qwen3-0.6B (student) and Qwen3-1.7B (teacher) for four steps. Run it first: it downloads small models and exercises every code path in minutes. Then pick <code>:mps</code> or <code>:a100</code> after the colon. Any config field can be overridden on the command line, for example <code>--config.train.lr=3e-5</code>.</p>
+        <p>The <code>:debug</code> preset swaps in Qwen3.5-0.8B (student) and Qwen3.5-2B (teacher) for four steps. Run it first: it downloads small models and exercises every code path in minutes. Then pick <code>:mps</code> or <code>:a100</code> after the colon. Any config field can be overridden on the command line, for example <code>--config.train.lr=3e-5</code>.</p>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th></th><th>Apple M5 Pro 48 GB &middot; <code>:mps</code></th><th>A100 80 GB &middot; <code>:a100</code></th></tr></thead>
           <tbody>
             <tr><td>Backend</td><td>PyTorch MPS, Hugging Face <code>generate</code></td><td>CUDA, bf16 autocast; vLLM via the TRL bridge</td></tr>
-            <tr><td>Student</td><td>Qwen3-1.7B, LoRA rank 32 on a frozen bf16 base</td><td>same; full fine-tuning is opt-in</td></tr>
-            <tr><td>Teacher</td><td>Qwen3-8B, bf16, frozen</td><td>same</td></tr>
+            <tr><td>Student</td><td>Qwen3.5-2B, LoRA rank 32 on a frozen bf16 base</td><td>same; full fine-tuning is opt-in</td></tr>
+            <tr><td>Teacher</td><td>Qwen3.5-9B, bf16, frozen</td><td>same</td></tr>
             <tr><td>Prompts per step (stage 1)</td><td class="num">8</td><td class="num">32</td></tr>
             <tr><td>Tokens per student turn (stage 1)</td><td class="num">512</td><td class="num">1,024</td></tr>
             <tr><td>Sequences generated in parallel</td><td class="num">16</td><td class="num">64</td></tr>
@@ -448,7 +448,7 @@ python -m pytest -q opd        # 2-3 min on CPU, no downloads</code></pre><butto
       <div class="block">
         <h3>Where the memory goes</h3>
         <div class="mem" id="mem"></div>
-        <p class="muted" style="font-size: 0.85rem">Weights at 2 bytes per parameter in bf16: Qwen3-8B (8.2B params) &asymp; 16.4 GB, Qwen3-1.7B &asymp; 3.4 GB. LoRA rank 32 on every linear layer is roughly 35M trainable parameters; with fp32 weights, gradients and two Adam moments that is about 0.6 GB (the run log prints the exact count). Full fine-tuning keeps fp32 master weights, gradients and Adam state: 16 bytes per parameter, about 27 GB for 1.7B. The dashed line on the Mac rows is the GPU share macOS allows by default, roughly 75% of RAM (36 GB); the hatched &ldquo;room&rdquo; is what remains for activations, logits and KV caches.</p>
+        <p class="muted" style="font-size: 0.85rem">Weights at 2 bytes per parameter in bf16, language models only (both checkpoints also hold a vision tower, which the from-scratch trainer never loads): Qwen3.5-9B (8.95B params) &asymp; 17.9 GB, Qwen3.5-2B (1.88B) &asymp; 3.8 GB. LoRA rank 32 on every linear layer is roughly 34M trainable parameters; with fp32 weights, gradients and two Adam moments that is about 0.5 GB (the run log prints the exact count). Full fine-tuning keeps fp32 master weights, gradients and Adam state: 16 bytes per parameter, about 30 GB for 1.88B. The dashed line on the Mac rows is the GPU share macOS allows by default, roughly 75% of RAM (36 GB); the hatched &ldquo;room&rdquo; is what remains for activations, logits and KV caches.</p>
       </div>
     </section>
 
@@ -500,7 +500,7 @@ python -m pytest -q opd        # 2-3 min on CPU, no downloads</code></pre><butto
       <ol class="clean">
         <li><code>opd/losses.py</code>: the math of every stage in about 150 lines. Read it first.</li>
         <li><code>opd/rollout.py</code>: how an episode becomes one token sequence with an action mask.</li>
-        <li><code>opd/chat.py</code>: the Qwen3 chat format, tool schemas, tool-call parsing.</li>
+        <li><code>opd/chat.py</code>: the Qwen3.5 chat format, tool schemas, tool-call parsing.</li>
         <li><code>opd/trainer.py</code>: <code>collate</code>, <code>score</code>, <code>update</code>, <code>train</code>.</li>
         <li><code>opd/envs/base.py</code>, then one environment such as <code>calculator.py</code>.</li>
         <li><code>opd/configs/base.py</code> and the five stage configs: the only thing that differs between stages.</li>
@@ -553,7 +553,7 @@ train.lr = 1e-4      # LoRA (Tinker's OPD recipe)</code></pre>
           <h3>Experiments</h3>
           <ul class="clean">
             <li><code>--config.loss.teacher_estimator=full</code>: exact KL over the 152k vocabulary instead of one sample. Compare the <code>teacher_kl</code> curves, and the memory.</li>
-            <li><code>--config.model.student=Qwen/Qwen3-1.7B-Base</code>: a base model has a much larger gap to close, so the effect is bigger.</li>
+            <li><code>--config.model.student=Qwen/Qwen3.5-2B-Base</code>: a base model has a much larger gap to close, so the effect is bigger.</li>
             <li>On the A100: <code>--config.rollout.enable_thinking=True</code> with a longer token budget.</li>
           </ul>
         </div>
@@ -727,7 +727,7 @@ train.lr = 1e-5          # Tinker's math RL recipe</code></pre>
       <div class="block">
         <h3>Experiments</h3>
         <ul class="clean">
-          <li>Start from the original Qwen3-1.7B instead of stage 4: how much did distillation buy you in RL steps?</li>
+          <li>Start from the original Qwen3.5-2B instead of stage 4: how much did distillation buy you in RL steps?</li>
           <li><code>--config.loss.ref_kl_coef=1e-3</code> and compare entropy and reward.</li>
           <li>Learning-rate sweep: 1e-5, 3e-5, 1e-4. RL is far more sensitive to it than distillation.</li>
         </ul>
@@ -800,11 +800,11 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
       <div class="notes">
         <div class="note">
           <h3>Silent top-k sampling</h3>
-          <p>transformers 5.x applies <code>top_k=50</code> when you pass only <code>do_sample=True</code>, and Qwen3 checkpoints ship a generation config with temperature 0.6, top-k 20, top-p 0.95. Truncated samples are not from the policy whose log-probs you train on. Measured on a tiny random model: 400 one-token samples gave exactly 50 distinct tokens with defaults, over 100 with the overrides in <code>rollout.generate</code>.</p>
+          <p>transformers 5.x applies <code>top_k=50</code> when you pass only <code>do_sample=True</code>, and a checkpoint's generation config can truncate further (Qwen3's: temperature 0.6, top-k 20, top-p 0.95). Truncated samples are not from the policy whose log-probs you train on. Measured on a tiny random model: 400 one-token samples gave exactly 50 distinct tokens with defaults, over 100 with the overrides in <code>rollout.generate</code>.</p>
         </div>
         <div class="note">
           <h3>Re-rendering rewrites history</h3>
-          <p>Qwen3's chat template drops the empty <code>&lt;think&gt;&lt;/think&gt;</code> block from past assistant turns. Rebuild a multi-turn episode from messages and the tokens differ from what the student sampled. The rollout appends tool results as tokens instead; <code>chat_test.py</code> shows both behaviours.</p>
+          <p>Qwen3.5's chat template drops the empty <code>&lt;think&gt;&lt;/think&gt;</code> block from past assistant turns. Rebuild a multi-turn episode from messages and the tokens differ from what the student sampled. The rollout appends tool results as tokens instead; <code>chat_test.py</code> shows both behaviours.</p>
         </div>
         <div class="note">
           <h3>bf16 swallows small updates</h3>
@@ -812,11 +812,11 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
         </div>
         <div class="note">
           <h3>The vocabulary is the memory hog</h3>
-          <p>One 1,024-token row of float32 logits over Qwen3's 151,936-token vocabulary is 622 MB. The code computes log-probs one row at a time, and <code>logits_to_keep</code> skips positions inside the shared prompt.</p>
+          <p>One 1,024-token row of float32 logits over Qwen3.5's 248,320-token vocabulary is 1.0 GB. The code computes log-probs one row at a time, and <code>logits_to_keep</code> skips positions inside the shared prompt.</p>
         </div>
         <div class="note">
           <h3>Unbiased is not the same as useful</h3>
-          <p>On a toy pair of tiny models, the exact-KL estimator cut KL from 3.9 to 2.3 nats in 30 steps, while the single-sample estimator stayed flat at 64 tokens per step and fell from 3.9 to 3.1 at 512. Same expected gradient, very different variance. Real Qwen3 pairs start much closer than the toy pair, which keeps the variance lower.</p>
+          <p>On a toy pair of tiny models, the exact-KL estimator cut KL from 7.1 to 4.1 nats in 30 steps at 64 tokens per step; the single-sample estimator only reached 5.6, and needed 512 tokens per step to reach 4.7. Same expected gradient, very different variance. Real Qwen3.5 pairs start much closer than the toy pair, which keeps the variance lower.</p>
         </div>
         <div class="note">
           <h3>Groups that agree teach nothing</h3>
@@ -875,25 +875,25 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
   ];
   const calculator = [
     P("… # Tools … calculator … user\\nCompute 48213 * 9127 - 3311. … assistant\\n"),
-    S("<tool_call>", -0.7, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.05),
-    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\":", -0.1, -0.1), S(" \"48213 * 9127 - 3311\"}}", -0.4, -0.3),
-    S("</tool_call>", -0.05, -0.05), S("<|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.7, -0.2), S("\\n<function=", -0.05, -0.05), S("calculator>", -0.2, -0.05),
+    S("\\n<parameter=", -0.05, -0.05), S("expression>", -0.1, -0.1), S("\\n48213 * 9127 - 3311", -0.4, -0.3),
+    S("\\n</parameter>\\n</function>\\n</tool_call>", -0.05, -0.05), S("<|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\n440036740\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
     S("The", -0.9, -0.6), S(" result", -0.5, -0.5), S(" is", -0.2, -0.2), S(" \\boxed{440036740}", -0.1, -0.1), S("<|im_end|>", -0.05, -0.05),
   ];
   const multiTool = [
     P("… # Tools … calculator, json_query, query_sql … user\\nEvery employee in the Sales department gets a 5% raise. What will the department's total annual salary be after the raise? … assistant\\n"),
-    S("<tool_call>", -0.3, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"json_query\",", -0.4, -4.8),
-    S(" \"arguments\":", -0.05, -0.1), S(" {\"expression\": \"employees[?department=='Sales']\"}}", -0.6, -1.9),
-    S("</tool_call><|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.3, -0.2), S("\\n<function=", -0.05, -0.05), S("json_query>", -0.4, -4.8),
+    S("\\n<parameter=expression>", -0.05, -0.1), S("\\nemployees[?department=='Sales']", -0.6, -1.9),
+    S("\\n</parameter>\\n</function>\\n</tool_call><|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\nnull\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
-    S("<tool_call>", -0.2, -0.1), S("{\"name\":", -0.05, -0.05), S(" \"query_sql\",", -0.3, -0.1),
-    S(" \"arguments\":", -0.05, -0.05), S(" {\"sql\": \"SELECT SUM(salary) FROM employees WHERE department = 'Sales'\"}}", -0.7, -0.5),
-    S("</tool_call><|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.2, -0.1), S("\\n<function=", -0.05, -0.05), S("query_sql>", -0.3, -0.1),
+    S("\\n<parameter=sql>", -0.05, -0.05), S("\\nSELECT SUM(salary) FROM employees WHERE department = 'Sales'", -0.7, -0.5),
+    S("\\n</parameter>\\n</function>\\n</tool_call><|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\nSUM(salary)\\n512750\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
-    S("<tool_call>", -0.4, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.1),
-    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\": \"512750 * 1.05\"}}", -0.5, -0.4),
-    S("</tool_call><|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.4, -0.2), S("\\n<function=", -0.05, -0.05), S("calculator>", -0.2, -0.1),
+    S("\\n<parameter=expression>", -0.05, -0.05), S("\\n512750 * 1.05", -0.5, -0.4),
+    S("\\n</parameter>\\n</function>\\n</tool_call><|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\n538387.5\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
     S("The", -0.6, -0.5), S(" new", -0.4, -0.3), S(" total", -0.3, -0.3), S(" is", -0.1, -0.1),
     S(" \\boxed{538388}", -0.5, -0.3), S("<|im_end|>", -0.05, -0.05),
@@ -1013,10 +1013,10 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
   // Weights and optimizer state in GB; "room" is what is left for
   // activations, logits and KV caches under the device limit.
   const MEM = [
-    { label: "Mac, stages 1–4", total: 48, limit: 36, parts: [["t", 16.4, "teacher 16.4"], ["st", 3.4, "student 3.4"], ["opt", 0.6, ""]] },
-    { label: "Mac, stage 5", total: 48, limit: 36, parts: [["st", 3.4, "student 3.4"], ["opt", 0.6, ""]] },
-    { label: "A100, LoRA", total: 80, limit: 80, parts: [["t", 16.4, "teacher 16.4"], ["st", 3.4, "3.4"], ["opt", 0.6, ""]] },
-    { label: "A100, full fine-tune", total: 80, limit: 80, parts: [["t", 16.4, "teacher 16.4"], ["opt", 27.2, "fp32 student + grads + Adam 27.2"]] },
+    { label: "Mac, stages 1–4", total: 48, limit: 36, parts: [["t", 17.9, "teacher 17.9"], ["st", 3.8, "student 3.8"], ["opt", 0.5, ""]] },
+    { label: "Mac, stage 5", total: 48, limit: 36, parts: [["st", 3.8, "student 3.8"], ["opt", 0.5, ""]] },
+    { label: "A100, LoRA", total: 80, limit: 80, parts: [["t", 17.9, "teacher 17.9"], ["st", 3.8, "3.8"], ["opt", 0.5, ""]] },
+    { label: "A100, full fine-tune", total: 80, limit: 80, parts: [["t", 17.9, "teacher 17.9"], ["opt", 30.1, "fp32 student + grads + Adam 30.1"]] },
   ];
   const memEl = document.getElementById("mem");
   MEM.forEach((row) => {

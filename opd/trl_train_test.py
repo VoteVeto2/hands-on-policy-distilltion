@@ -84,6 +84,7 @@ class TrlTrainTest(parameterized.TestCase):
         model=self.student,
         reward_funcs=trl_train.make_reward(chat.stop_token_ids(tokenizer)),
         args=args,
+        processing_class=tokenizer,
         train_dataset=dataset,
         environment_factory=calculator.CalculatorEnv,
         teacher_model=transformers.AutoModelForCausalLM.from_pretrained(

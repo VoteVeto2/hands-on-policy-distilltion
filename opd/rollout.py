@@ -89,9 +89,10 @@ def generate(
     attention_mask[i, width - len(seq) :] = 1
   if temperature > 0:
     # Sample from exactly the distribution we compute log-probs for. Without
-    # these overrides transformers applies top_k=50 by default, and Qwen3's
-    # generation_config.json adds top_k=20, top_p=0.95, temperature=0.6:
-    # truncated sampling makes the "on-policy" data off-policy.
+    # these overrides transformers applies top_k=50 by default, and a
+    # checkpoint's generation_config.json can add more (Qwen3's: top_k=20,
+    # top_p=0.95, temperature=0.6): truncated sampling makes the "on-policy"
+    # data off-policy.
     sampling = dict(do_sample=True, temperature=temperature, top_k=0, top_p=1.0)
   else:
     sampling = dict(do_sample=False)
@@ -209,7 +210,8 @@ def _step(
     episode.truncated = episode.done = True
     return
   malformed = (
-      "Error: malformed <tool_call>; expected JSON with name and arguments."
+      "Error: malformed <tool_call>; expected <function=NAME> and"
+      " <parameter=NAME> blocks."
   )
   results = [
       malformed if c is None else base.call_tool(tools, c) for c in calls

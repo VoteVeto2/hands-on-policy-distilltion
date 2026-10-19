@@ -54,6 +54,7 @@ import transformers
 import trl
 from trl.models.utils import disable_gradient_checkpointing
 from trl.trainer.utils import add_fused_lm_head
+from trl.trainer.utils import create_model_from_path
 
 from opd import chat
 from opd import models
@@ -252,6 +253,11 @@ def load_model(
   records, or chaining a third stage would drop the first stage's update. With
   LoRA off it is merged into float32 weights for full fine-tuning.
 
+  The weights load as GRPOTrainer loads a model path, with the checkpoint's own
+  architecture: for Qwen3.5 that is `Qwen3_5ForConditionalGeneration`, vision
+  tower included. `AutoModelForCausalLM` would load the language model alone,
+  whose parameter names match neither the adapter's nor those vLLM expects.
+
   Args:
     config: The full experiment config.
 
@@ -262,12 +268,12 @@ def load_model(
   if not models.is_adapter(checkpoint):
     return checkpoint or config.model.student
   if config.model.lora.enabled:
-    model = transformers.AutoModelForCausalLM.from_pretrained(
+    model = create_model_from_path(
         models.base_weights(config.model), dtype="auto"
     )
     return peft.PeftModel.from_pretrained(model, checkpoint, is_trainable=True)
   # Merge in float32: added to bf16 weights, small LoRA updates round away.
-  model = transformers.AutoModelForCausalLM.from_pretrained(
+  model = create_model_from_path(
       models.base_weights(config.model), dtype=torch.float32
   )
   model = peft.PeftModel.from_pretrained(model, checkpoint).merge_and_unload()
@@ -375,6 +381,8 @@ def train(config: config_dict.ConfigDict, workdir: str, use_vllm: bool) -> None:
         r=config.model.lora.rank,
         lora_alpha=config.model.lora.alpha,
         target_modules="all-linear",
+        # Qwen3.5's vision tower: every task here is text only.
+        exclude_modules=r".*\.visual\..*",
     )
   env_cls = registry.get(config.env).env_cls
   eval_dataset = None
@@ -386,6 +394,9 @@ def train(config: config_dict.ConfigDict, workdir: str, use_vllm: bool) -> None:
       model=model,
       reward_funcs=make_reward(chat.stop_token_ids(tokenizer)),
       args=args,
+      # Without it GRPOTrainer loads Qwen3.5's image processor too, and treats
+      # every (text-only) prompt as multimodal.
+      processing_class=tokenizer,
       train_dataset=build_dataset(
           config,
           config.train.num_steps * config.train.prompts_per_step,

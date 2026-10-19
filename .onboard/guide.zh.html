@@ -371,9 +371,9 @@ body { line-height: 1.75; }
 
   <main>
     <section class="hero" id="top">
-      <p class="eyebrow">后训练实验 &middot; Qwen3-8B 教 Qwen3-1.7B &middot; Apple M5 Pro 或一张 A100</p>
+      <p class="eyebrow">后训练实验 &middot; Qwen3.5-9B 教 Qwen3.5-2B &middot; Apple M5 Pro 或一张 A100</p>
       <h1>学生写下的每一个 token 都会被打分。</h1>
-      <p class="lede">本指南带你走完一条从零实现的流水线：把一个 1.7B 模型从<strong>在线策略蒸馏（on-policy distillation）</strong>一路训练成<strong>用强化学习训练的工具调用智能体</strong>。五个阶段跑的是同一个循环：学生采样，评判者打分，学生更新。变化的只是谁来当评判者，以及它多久发言一次。</p>
+      <p class="lede">本指南带你走完一条从零实现的流水线：把一个 2B 模型从<strong>在线策略蒸馏（on-policy distillation）</strong>一路训练成<strong>用强化学习训练的工具调用智能体</strong>。五个阶段跑的是同一个循环：学生采样，评判者打分，学生更新。变化的只是谁来当评判者，以及它多久发言一次。</p>
 
       <div class="tape" id="tape">
         <div class="tape-controls">
@@ -444,15 +444,15 @@ python -m pytest -q opd        # CPU 上 2-3 分钟，无需下载</code></pre><
         <div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage1_distill.py:debug --workdir=runs/debug</code></pre><button class="copy" type="button">复制</button></div>
       </div>
       <div class="prose">
-        <p><code>:debug</code> 预设会换成 Qwen3-0.6B（学生）和 Qwen3-1.7B（教师），只跑四步。先跑它：它只下载小模型，几分钟内就能走遍所有代码路径。之后在冒号后换成 <code>:mps</code> 或 <code>:a100</code>。任何配置字段都可以在命令行覆盖，例如 <code>--config.train.lr=3e-5</code>。</p>
+        <p><code>:debug</code> 预设会换成 Qwen3.5-0.8B（学生）和 Qwen3.5-2B（教师），只跑四步。先跑它：它只下载小模型，几分钟内就能走遍所有代码路径。之后在冒号后换成 <code>:mps</code> 或 <code>:a100</code>。任何配置字段都可以在命令行覆盖，例如 <code>--config.train.lr=3e-5</code>。</p>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th></th><th>Apple M5 Pro 48 GB &middot; <code>:mps</code></th><th>A100 80 GB &middot; <code>:a100</code></th></tr></thead>
           <tbody>
             <tr><td>后端</td><td>PyTorch MPS，Hugging Face <code>generate</code></td><td>CUDA，bf16 autocast；通过 TRL 桥接使用 vLLM</td></tr>
-            <tr><td>学生</td><td>Qwen3-1.7B，在冻结的 bf16 底座上加 rank 32 的 LoRA</td><td>同左；全参数微调可选开启</td></tr>
-            <tr><td>教师</td><td>Qwen3-8B，bf16，冻结</td><td>同左</td></tr>
+            <tr><td>学生</td><td>Qwen3.5-2B，在冻结的 bf16 底座上加 rank 32 的 LoRA</td><td>同左；全参数微调可选开启</td></tr>
+            <tr><td>教师</td><td>Qwen3.5-9B，bf16，冻结</td><td>同左</td></tr>
             <tr><td>每步提示词数（阶段 1）</td><td class="num">8</td><td class="num">32</td></tr>
             <tr><td>学生每轮 token 数（阶段 1）</td><td class="num">512</td><td class="num">1,024</td></tr>
             <tr><td>并行生成的序列数</td><td class="num">16</td><td class="num">64</td></tr>
@@ -462,7 +462,7 @@ python -m pytest -q opd        # CPU 上 2-3 分钟，无需下载</code></pre><
       <div class="block">
         <h3>显存都花在哪儿</h3>
         <div class="mem" id="mem"></div>
-        <p class="muted" style="font-size: 0.85rem">bf16 下每个参数 2 字节：Qwen3-8B（8.2B 参数）&asymp; 16.4 GB，Qwen3-1.7B &asymp; 3.4 GB。在所有线性层上加 rank 32 的 LoRA 约有 35M 可训练参数；加上 fp32 权重、梯度和 Adam 的两个动量，约 0.6 GB（运行日志会打印确切数量）。全参数微调需要保存 fp32 主权重、梯度和 Adam 状态：每个参数 16 字节，1.7B 模型约 27 GB。Mac 那几行上的虚线是 macOS 默认允许 GPU 使用的份额，约为内存的 75%（36 GB）；斜线填充的“余量”是留给激活值、logits 和 KV 缓存的空间。</p>
+        <p class="muted" style="font-size: 0.85rem">bf16 下每个参数 2 字节，只算语言模型（两个检查点都还带一个视觉塔，从零实现的 trainer 不会加载它）：Qwen3.5-9B（8.95B 参数）&asymp; 17.9 GB，Qwen3.5-2B（1.88B）&asymp; 3.8 GB。在所有线性层上加 rank 32 的 LoRA 约有 34M 可训练参数；加上 fp32 权重、梯度和 Adam 的两个动量，约 0.5 GB（运行日志会打印确切数量）。全参数微调需要保存 fp32 主权重、梯度和 Adam 状态：每个参数 16 字节，1.88B 参数约 30 GB。Mac 那几行上的虚线是 macOS 默认允许 GPU 使用的份额，约为内存的 75%（36 GB）；斜线填充的“余量”是留给激活值、logits 和 KV 缓存的空间。</p>
       </div>
     </section>
 
@@ -514,7 +514,7 @@ python -m pytest -q opd        # CPU 上 2-3 分钟，无需下载</code></pre><
       <ol class="clean">
         <li><code>opd/losses.py</code>：所有阶段的数学，约 150 行。先读它。</li>
         <li><code>opd/rollout.py</code>：一条 episode 如何变成一个带 action mask 的 token 序列。</li>
-        <li><code>opd/chat.py</code>：Qwen3 对话格式、工具 schema、工具调用解析。</li>
+        <li><code>opd/chat.py</code>：Qwen3.5 对话格式、工具 schema、工具调用解析。</li>
         <li><code>opd/trainer.py</code>：<code>collate</code>、<code>score</code>、<code>update</code>、<code>train</code>。</li>
         <li><code>opd/envs/base.py</code>，然后读一个具体环境，例如 <code>calculator.py</code>。</li>
         <li><code>opd/configs/base.py</code> 以及五个阶段配置：这是各阶段之间唯一不同的地方。</li>
@@ -567,7 +567,7 @@ train.lr = 1e-4      # LoRA (Tinker's OPD recipe)</code></pre>
           <h3>实验</h3>
           <ul class="clean">
             <li><code>--config.loss.teacher_estimator=full</code>：在 152k 词表上计算精确 KL，而不是只用一个样本。比较 <code>teacher_kl</code> 曲线和显存占用。</li>
-            <li><code>--config.model.student=Qwen/Qwen3-1.7B-Base</code>：base 模型要追的差距大得多，效果也更明显。</li>
+            <li><code>--config.model.student=Qwen/Qwen3.5-2B-Base</code>：base 模型要追的差距大得多，效果也更明显。</li>
             <li>在 A100 上：<code>--config.rollout.enable_thinking=True</code>，并给更长的 token 预算。</li>
           </ul>
         </div>
@@ -741,7 +741,7 @@ train.lr = 1e-5          # Tinker's math RL recipe</code></pre>
       <div class="block">
         <h3>实验</h3>
         <ul class="clean">
-          <li>从原始 Qwen3-1.7B 而不是阶段 4 开始：蒸馏为你省下了多少 RL 步数？</li>
+          <li>从原始 Qwen3.5-2B 而不是阶段 4 开始：蒸馏为你省下了多少 RL 步数？</li>
           <li><code>--config.loss.ref_kl_coef=1e-3</code>，比较熵和奖励。</li>
           <li>学习率扫描：1e-5、3e-5、1e-4。RL 对学习率远比蒸馏敏感。</li>
         </ul>
@@ -814,11 +814,11 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
       <div class="notes">
         <div class="note">
           <h3>悄无声息的 top-k 采样</h3>
-          <p>transformers 5.x 在你只传 <code>do_sample=True</code> 时会应用 <code>top_k=50</code>，而 Qwen3 检查点自带的生成配置是 temperature 0.6、top-k 20、top-p 0.95。截断后的样本并不来自你用来训练对数概率的那个策略。在一个很小的随机模型上实测：400 个单 token 样本在默认设置下恰好只有 50 个不同 token，用了 <code>rollout.generate</code> 中的覆盖之后超过 100 个。</p>
+          <p>transformers 5.x 在你只传 <code>do_sample=True</code> 时会应用 <code>top_k=50</code>，而检查点自带的生成配置还可能进一步截断（Qwen3 的是 temperature 0.6、top-k 20、top-p 0.95）。截断后的样本并不来自你用来训练对数概率的那个策略。在一个很小的随机模型上实测：400 个单 token 样本在默认设置下恰好只有 50 个不同 token，用了 <code>rollout.generate</code> 中的覆盖之后超过 100 个。</p>
         </div>
         <div class="note">
           <h3>重新渲染会改写历史</h3>
-          <p>Qwen3 的对话模板会从过去的 assistant 轮次中删掉空的 <code>&lt;think&gt;&lt;/think&gt;</code> 块。如果从消息重建多轮 episode，得到的 token 会和学生实际采样的不同。所以 rollout 改为以 token 形式追加工具结果；<code>chat_test.py</code> 展示了两种行为。</p>
+          <p>Qwen3.5 的对话模板会从过去的 assistant 轮次中删掉空的 <code>&lt;think&gt;&lt;/think&gt;</code> 块。如果从消息重建多轮 episode，得到的 token 会和学生实际采样的不同。所以 rollout 改为以 token 形式追加工具结果；<code>chat_test.py</code> 展示了两种行为。</p>
         </div>
         <div class="note">
           <h3>bf16 会吞掉小的更新</h3>
@@ -826,11 +826,11 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
         </div>
         <div class="note">
           <h3>词表才是显存大户</h3>
-          <p>在 Qwen3 的 151,936 词表上，一行 1,024 token 的 float32 logits 就是 622 MB。代码一次只计算一行的对数概率，并用 <code>logits_to_keep</code> 跳过共享提示词内的位置。</p>
+          <p>在 Qwen3.5 的 248,320 词表上，一行 1,024 token 的 float32 logits 就是 1.0 GB。代码一次只计算一行的对数概率，并用 <code>logits_to_keep</code> 跳过共享提示词内的位置。</p>
         </div>
         <div class="note">
           <h3>无偏不等于有用</h3>
-          <p>在一对很小的玩具模型上，精确 KL 估计量在 30 步内把 KL 从 3.9 降到 2.3 nats，而单样本估计量在每步 64 token 时几乎不动，512 token 时从 3.9 降到 3.1。期望梯度相同，方差却天差地别。真实的 Qwen3 模型对起点比玩具模型近得多，方差也就更低。</p>
+          <p>在一对很小的玩具模型上，每步 64 token 时，精确 KL 估计量在 30 步内把 KL 从 7.1 降到 4.1 nats，单样本估计量只降到 5.6；要每步 512 token 才降到 4.7。期望梯度相同，方差却天差地别。真实的 Qwen3.5 模型对起点比玩具模型近得多，方差也就更低。</p>
         </div>
         <div class="note">
           <h3>结果一致的组什么也学不到</h3>
@@ -889,25 +889,25 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
   ];
   const calculator = [
     P("… # Tools … calculator … user\\nCompute 48213 * 9127 - 3311. … assistant\\n"),
-    S("<tool_call>", -0.7, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.05),
-    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\":", -0.1, -0.1), S(" \"48213 * 9127 - 3311\"}}", -0.4, -0.3),
-    S("</tool_call>", -0.05, -0.05), S("<|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.7, -0.2), S("\\n<function=", -0.05, -0.05), S("calculator>", -0.2, -0.05),
+    S("\\n<parameter=", -0.05, -0.05), S("expression>", -0.1, -0.1), S("\\n48213 * 9127 - 3311", -0.4, -0.3),
+    S("\\n</parameter>\\n</function>\\n</tool_call>", -0.05, -0.05), S("<|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\n440036740\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
     S("The", -0.9, -0.6), S(" result", -0.5, -0.5), S(" is", -0.2, -0.2), S(" \\boxed{440036740}", -0.1, -0.1), S("<|im_end|>", -0.05, -0.05),
   ];
   const multiTool = [
     P("… # Tools … calculator, json_query, query_sql … user\\nEvery employee in the Sales department gets a 5% raise. What will the department's total annual salary be after the raise? … assistant\\n"),
-    S("<tool_call>", -0.3, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"json_query\",", -0.4, -4.8),
-    S(" \"arguments\":", -0.05, -0.1), S(" {\"expression\": \"employees[?department=='Sales']\"}}", -0.6, -1.9),
-    S("</tool_call><|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.3, -0.2), S("\\n<function=", -0.05, -0.05), S("json_query>", -0.4, -4.8),
+    S("\\n<parameter=expression>", -0.05, -0.1), S("\\nemployees[?department=='Sales']", -0.6, -1.9),
+    S("\\n</parameter>\\n</function>\\n</tool_call><|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\nnull\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
-    S("<tool_call>", -0.2, -0.1), S("{\"name\":", -0.05, -0.05), S(" \"query_sql\",", -0.3, -0.1),
-    S(" \"arguments\":", -0.05, -0.05), S(" {\"sql\": \"SELECT SUM(salary) FROM employees WHERE department = 'Sales'\"}}", -0.7, -0.5),
-    S("</tool_call><|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.2, -0.1), S("\\n<function=", -0.05, -0.05), S("query_sql>", -0.3, -0.1),
+    S("\\n<parameter=sql>", -0.05, -0.05), S("\\nSELECT SUM(salary) FROM employees WHERE department = 'Sales'", -0.7, -0.5),
+    S("\\n</parameter>\\n</function>\\n</tool_call><|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\nSUM(salary)\\n512750\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
-    S("<tool_call>", -0.4, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.1),
-    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\": \"512750 * 1.05\"}}", -0.5, -0.4),
-    S("</tool_call><|im_end|>", -0.05, -0.05),
+    S("<tool_call>", -0.4, -0.2), S("\\n<function=", -0.05, -0.05), S("calculator>", -0.2, -0.1),
+    S("\\n<parameter=expression>", -0.05, -0.05), S("\\n512750 * 1.05", -0.5, -0.4),
+    S("\\n</parameter>\\n</function>\\n</tool_call><|im_end|>", -0.05, -0.05),
     E("\\n<|im_start|>user\\n<tool_response>\\n538387.5\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
     S("The", -0.6, -0.5), S(" new", -0.4, -0.3), S(" total", -0.3, -0.3), S(" is", -0.1, -0.1),
     S(" \\boxed{538388}", -0.5, -0.3), S("<|im_end|>", -0.05, -0.05),
@@ -1027,10 +1027,10 @@ SPEC = base.EnvSpec(WeatherEnv, sample_task)
   // Weights and optimizer state in GB; "room" is what is left for
   // activations, logits and KV caches under the device limit.
   const MEM = [
-    { label: "Mac，阶段 1–4", total: 48, limit: 36, parts: [["t", 16.4, "教师 16.4"], ["st", 3.4, "学生 3.4"], ["opt", 0.6, ""]] },
-    { label: "Mac，阶段 5", total: 48, limit: 36, parts: [["st", 3.4, "学生 3.4"], ["opt", 0.6, ""]] },
-    { label: "A100，LoRA", total: 80, limit: 80, parts: [["t", 16.4, "教师 16.4"], ["st", 3.4, "3.4"], ["opt", 0.6, ""]] },
-    { label: "A100，全参数微调", total: 80, limit: 80, parts: [["t", 16.4, "教师 16.4"], ["opt", 27.2, "fp32 学生 + 梯度 + Adam 27.2"]] },
+    { label: "Mac，阶段 1–4", total: 48, limit: 36, parts: [["t", 17.9, "教师 17.9"], ["st", 3.8, "学生 3.8"], ["opt", 0.5, ""]] },
+    { label: "Mac，阶段 5", total: 48, limit: 36, parts: [["st", 3.8, "学生 3.8"], ["opt", 0.5, ""]] },
+    { label: "A100，LoRA", total: 80, limit: 80, parts: [["t", 17.9, "教师 17.9"], ["st", 3.8, "3.8"], ["opt", 0.5, ""]] },
+    { label: "A100，全参数微调", total: 80, limit: 80, parts: [["t", 17.9, "教师 17.9"], ["opt", 30.1, "fp32 学生 + 梯度 + Adam 30.1"]] },
   ];
   const memEl = document.getElementById("mem");
   MEM.forEach((row) => {

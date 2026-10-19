@@ -8,10 +8,11 @@ the command line:
       --config.train.lr=3e-5 --workdir=runs/stage1
 
 Stage values are sized for the 48 GB Apple M5 Pro ("mps"). Memory budget
-(bf16 weights, 2 bytes per parameter): teacher Qwen3-8B ~16.4 GB + student
-Qwen3-1.7B ~3.4 GB + LoRA weights and Adam state < 1 GB. The rest of the GPU
-share of unified memory (macOS caps it at roughly 75% of RAM, ~36 GB, by
-default) holds activations, KV caches and logits.
+(bf16 weights, 2 bytes per parameter): teacher Qwen3.5-9B ~17.9 GB + student
+Qwen3.5-2B ~3.8 GB (language models only: `AutoModelForCausalLM` skips their
+vision towers) + LoRA weights and Adam state < 1 GB. The rest of the GPU share
+of unified memory (macOS caps it at roughly 75% of RAM, ~36 GB, by default)
+holds activations, KV caches and logits.
 """
 
 from ml_collections import config_dict
@@ -25,8 +26,8 @@ def get_config() -> config_dict.ConfigDict:
   c.env = "gsm8k"  # A key of opd.envs.registry.SPECS.
 
   c.model = config_dict.ConfigDict()
-  c.model.student = "Qwen/Qwen3-1.7B"
-  c.model.teacher = "Qwen/Qwen3-8B"  # "" means no teacher.
+  c.model.student = "Qwen/Qwen3.5-2B"
+  c.model.teacher = "Qwen/Qwen3.5-9B"  # "" means no teacher.
   # Start from a previous stage's output, e.g. "runs/stage1/final".
   c.model.init_checkpoint = ""
   c.model.gradient_checkpointing = True
@@ -39,7 +40,9 @@ def get_config() -> config_dict.ConfigDict:
   c.model.lora.alpha = 32
 
   c.rollout = config_dict.ConfigDict()
-  # Qwen3's non-thinking mode keeps episodes short enough for a laptop.
+  # Non-thinking mode keeps episodes short enough for a laptop. (Qwen3.5-2B
+  # defaults to it; Qwen3.5-9B, which only scores the student's tokens, would
+  # think by default.)
   c.rollout.enable_thinking = False
   c.rollout.max_turns = 1
   c.rollout.max_new_tokens = 512  # Per student turn.
@@ -94,7 +97,7 @@ def apply_hardware(
     c: A stage config.
     hardware: "mps" (Apple M5 Pro 48 GB, as written), "a100" (80 GB: bigger
       batches and longer episodes, still LoRA) or "debug" (minutes-long smoke
-      test with the smallest Qwen3 models; works on any machine).
+      test with the smallest Qwen3.5 models; works on any machine).
 
   Returns:
     The same config, modified in place.
@@ -109,9 +112,9 @@ def apply_hardware(
     c.rollout.max_completion_tokens *= 2
     c.eval.num_tasks = 256
   elif hardware == "debug":
-    c.model.student = "Qwen/Qwen3-0.6B"
+    c.model.student = "Qwen/Qwen3.5-0.8B"
     if c.model.teacher:
-      c.model.teacher = "Qwen/Qwen3-1.7B"
+      c.model.teacher = "Qwen/Qwen3.5-2B"
     c.train.num_steps = 4
     c.train.prompts_per_step = 2
     c.rollout.max_new_tokens = min(c.rollout.max_new_tokens, 128)

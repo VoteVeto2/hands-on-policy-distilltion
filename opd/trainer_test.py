@@ -209,12 +209,16 @@ class TrainerTest(parameterized.TestCase):
       self, estimator, prompts, tokens, ratio
   ):
     # A teacher the student can actually reach in a few steps: the student
-    # itself with its weights perturbed (initial per-token KL ~4 nats).
+    # itself with its weights perturbed (initial per-token KL ~7 nats). Both
+    # first get 10x embeddings: from the near-uniform logits of the random
+    # init, the tiny Qwen3.5 student closes only ~10% of the gap in 30 steps.
     tokenizer = testing.make_tokenizer()
     student = testing.make_model(len(tokenizer))
     teacher = testing.make_model(len(tokenizer))
     torch.manual_seed(1)
     with torch.no_grad():
+      for model in (student, teacher):
+        model.get_input_embeddings().weight.mul_(10.0)
       for param in teacher.parameters():
         param.add_(0.5 * torch.randn_like(param))
     root = self._tempdir()

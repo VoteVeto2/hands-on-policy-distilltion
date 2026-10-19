@@ -1,7 +1,7 @@
 # Hands-on policy distillation
 
 A from-scratch, readable post-training pipeline: on-policy distillation from
-Qwen3-8B to Qwen3-1.7B, grown step by step into a tool-using agent trained
+Qwen3.5-9B to Qwen3.5-2B, grown step by step into a tool-using agent trained
 with GRPO. It runs on one Apple M5 Pro (48 GB) or one A100 (80 GB).
 
 | Stage | What the student learns from |

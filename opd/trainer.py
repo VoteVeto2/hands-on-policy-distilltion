@@ -40,7 +40,7 @@ class MicroBatch:
   Per-token tensors have shape [B, T] and cover target positions
   `start, ..., L - 1` of `input_ids`. `start` is the shortest prompt length:
   scoring begins there, which skips most of the (shared) prompt and saves a
-  152k-wide logits row per skipped position.
+  248k-wide logits row per skipped position.
   """
 
   input_ids: torch.Tensor  # [B, L]

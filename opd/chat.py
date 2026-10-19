@@ -1,18 +1,19 @@
-"""Prompt rendering and tool-call parsing for ChatML models such as Qwen3.
+"""Prompt rendering and tool-call parsing for ChatML models such as Qwen3.5.
 
 Everything the policy reads or writes is a flat list of token ids. This module
 is the only place that converts between chat messages and those ids.
 
-Assumptions (true for Qwen2.5 and Qwen3; re-check them before switching
-model families):
+Assumptions (true for Qwen3.5; re-check them before switching model families):
   * Turns look like `<|im_start|>{role}\\n{content}<|im_end|>\\n`.
-  * The model calls tools by emitting `<tool_call>{"name": ..., "arguments":
-    {...}}</tool_call>` blocks inside its own turn (Hermes format).
+  * The model calls tools by emitting, inside its own turn, blocks like
+    `<tool_call>\\n<function=NAME>\\n<parameter=ARG>\\nVALUE\\n</parameter>\\n
+    </function>\\n</tool_call>` (the XML format of Qwen3-Coder; Qwen3 wrote
+    JSON instead).
   * Tool results go back in a user turn, each wrapped in `<tool_response>`.
 """
 
 import dataclasses
-import json
+import re
 from typing import Any, Callable
 
 import transformers
@@ -58,8 +59,8 @@ def encode_prompt(
       and Google-style docstrings into JSON schemas
       (`transformers.utils.get_json_schema`), which the chat template renders
       into the system prompt.
-    enable_thinking: Qwen3 switch. When False the template pre-fills an empty
-      `<think></think>` block so the model answers directly.
+    enable_thinking: Qwen3.5 switch. When False the template pre-fills an
+      empty `<think></think>` block so the model answers directly.
 
   Returns:
     Token ids ending with the assistant header, ready for generation.
@@ -91,9 +92,13 @@ def encode_tool_results(
 
   We append these tokens to the ids the policy sampled instead of re-rendering
   the whole conversation with the chat template. Re-rendering can rewrite
-  earlier turns (Qwen3's template drops empty think blocks from past turns),
+  earlier turns (Qwen3.5's template drops empty think blocks from past turns),
   and then the tokens we train on would no longer be the tokens the policy
   actually sampled.
+
+  Qwen3.5's template refuses to render tool results on their own (it needs a
+  user query first), so we render a dummy exchange with and without them and
+  keep the difference.
 
   Args:
     tokenizer: A tokenizer with a ChatML chat template.
@@ -103,20 +108,29 @@ def encode_tool_results(
   Returns:
     Token ids to append; none of them are policy actions.
   """
-  messages = [{"role": "tool", "content": result} for result in results]
-  text = tokenizer.apply_chat_template(
-      messages,
+  exchange = [
+      {"role": "user", "content": "?"},
+      {"role": "assistant", "content": "!"},
+  ]
+  before = tokenizer.apply_chat_template(
+      exchange, tokenize=False, enable_thinking=enable_thinking
+  )
+  after = tokenizer.apply_chat_template(
+      exchange + [{"role": "tool", "content": result} for result in results],
       tokenize=False,
       add_generation_prompt=True,
       enable_thinking=enable_thinking,
   )
-  return tokenizer.encode("\n" + text, add_special_tokens=False)
+  if not after.startswith(before):
+    raise ValueError("The chat template rewrites turns before tool results.")
+  # `before` ends with "<|im_end|>\n"; the policy's turn ended at <|im_end|>.
+  return tokenizer.encode("\n" + after[len(before) :], add_special_tokens=False)
 
 
 def parse_tool_calls(text: str) -> list[ToolCall | None]:
   """Extracts the tool calls of one assistant turn, in the order written.
 
-  Hermes-style calls carry no ids: the k-th `<tool_response>` answers the k-th
+  Calls carry no ids: the k-th `<tool_response>` answers the k-th
   `<tool_call>`, so malformed calls keep their place in the list.
 
   Args:
@@ -124,7 +138,7 @@ def parse_tool_calls(text: str) -> list[ToolCall | None]:
 
   Returns:
     One entry per `<tool_call>` block: a `ToolCall`, or None if the block is
-    malformed (unclosed, invalid JSON, or no string `name`).
+    malformed (unclosed, or not starting with `<function=NAME>`).
   """
   calls = []
   for chunk in text.split("<tool_call>")[1:]:
@@ -134,17 +148,21 @@ def parse_tool_calls(text: str) -> list[ToolCall | None]:
   return calls
 
 
+_FUNCTION = re.compile(r"\s*<function=([^\n>]+)>(.*)", re.DOTALL)
+# Lenient about the newlines around a value, like TRL's Qwen3.5 parser.
+_PARAMETER = re.compile(
+    r"<parameter=([^\n>]+)>\s*(.*?)\s*</parameter>", re.DOTALL
+)
+
+
 def _parse_call(body: str) -> ToolCall | None:
-  try:
-    obj = json.loads(body)
-  except json.JSONDecodeError:
+  match = _FUNCTION.match(body)
+  if match is None:
     return None
-  if not isinstance(obj, dict) or not isinstance(obj.get("name"), str):
-    return None
-  arguments = obj.get("arguments", {})
-  if not isinstance(arguments, dict):
-    return None
-  return ToolCall(obj["name"], arguments)
+  name, parameters = match.groups()
+  # Values stay text: Qwen3.5 writes string arguments without quotes, so only
+  # a tool's schema could type them, and every tool here takes strings.
+  return ToolCall(name, dict(_PARAMETER.findall(parameters)))
 
 
 def strip_thinking(text: str) -> str:
