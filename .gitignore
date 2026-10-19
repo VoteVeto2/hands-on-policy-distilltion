@@ -1,12 +1,13 @@
 # Virtual environment
 .venv/
 
-# Cloned upstream repo (see ONBOARD.md)
-third_party/trl/
+# macOS
+.DS_Store
 
 # Python caches
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Training outputs
 runs/

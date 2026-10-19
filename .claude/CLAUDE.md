@@ -2,7 +2,7 @@
 
 ## Coding guidelines
 
-Follow the `andrej-karpathy-skills:karpathy-guidelines` skill when writing, reviewing, or refactoring code: keep changes minimal and surgical, state assumptions explicitly, and define verifiable success criteria before implementing.
+Follow the `karpathy-guidelines` skill (vendored in `.claude/skills/karpathy-guidelines/`, from [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/andrej-karpathy-skills)) when writing, reviewing, or refactoring code: keep changes minimal and surgical, state assumptions explicitly, and define verifiable success criteria before implementing.
 
 ## Environment
 

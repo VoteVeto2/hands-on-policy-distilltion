@@ -742,7 +742,7 @@ train.lr = 1e-5          # Tinker's math RL recipe</code></pre>
         <p><code>opd/trainer.py</code> is written to be read. To go past one device, <code>opd/trl_grpo.py</code> hands the same environment classes and the same reward to TRL's <code>GRPOTrainer</code>, which adds vLLM generation and multi-GPU training. The environments need no changes: they already follow TRL's <code>environment_factory</code> convention (<code>reset(**task)</code>; every other public method is a tool).</p>
       </div>
       <div class="cmd">
-        <div class="cmd-row"><pre><code>uv pip install -e "third_party/trl[vllm]"      # Linux + CUDA
+        <div class="cmd-row"><pre><code>uv pip install -e "trl[vllm]" --config-settings editable_mode=compat  # Linux + CUDA
 python -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl
 accelerate launch -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl</code></pre><button class="copy" type="button">Copy</button></div>
       </div>

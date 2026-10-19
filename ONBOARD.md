@@ -15,17 +15,20 @@ source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
-Optional, for the stage 5 scale-out path (`opd/trl_grpo.py`):
+TRL is pinned as a git submodule in `trl/`:
 
 ```bash
-git clone https://github.com/huggingface/trl.git third_party/trl
-uv pip install -e third_party/trl            # any machine
-uv pip install -e "third_party/trl[vllm]"    # Linux + CUDA only (A100)
+git submodule update --init trl
+uv pip install -e trl --config-settings editable_mode=compat              # any machine
+uv pip install -e "trl[vllm]" --config-settings editable_mode=compat      # Linux + CUDA only (A100)
 ```
 
 Notes:
 
 - `-e` installs in editable mode, so edits take effect without reinstalling.
+- `editable_mode=compat` matters: from the project root, the `trl/` checkout
+  directory would otherwise shadow the installed package (`import trl` finds
+  an empty namespace package).
 - vLLM needs Linux with a CUDA GPU. On the Mac, everything runs on PyTorch's
   MPS backend without vLLM.
 - The first run downloads Qwen3-1.7B (~3.4 GB) and Qwen3-8B (~16.4 GB) from
