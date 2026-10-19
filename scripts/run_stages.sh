@@ -15,9 +15,12 @@
 #   EXTRA       Extra flags for every stage, e.g. "--config.eval.every=50".
 #   SAVE        Directory to copy each stage's tarball to (e.g. Google Drive).
 #   PYTHON      Interpreter; default .venv/bin/python if present, else python3.
+#   BACKEND     main (opd/trainer.py, the default) or trl (opd/trl_train.py;
+#               add EXTRA=--use_vllm on CUDA).
 #
-# Outputs under runs/PRESET/: one workdir per stage, STAGE.tgz (final/ plus
-# metrics, samples and config) and, while running, run_stages.pid.
+# Outputs under runs/PRESET/ (runs/trl/PRESET/ for BACKEND=trl): one workdir
+# per stage, STAGE.tgz (final/ plus metrics, samples and config) and, while
+# running, run_stages.pid.
 
 set -euo pipefail
 
@@ -33,7 +36,10 @@ main() {
   if [[ -z "${PYTHON:-}" && -x .venv/bin/python ]]; then
     python=.venv/bin/python
   fi
-  local root="runs/${preset}"
+  local module=opd.main root="runs/${preset}"
+  if [[ "${BACKEND:-main}" == trl ]]; then
+    module=opd.trl_train root="runs/trl/${preset}"
+  fi
   local names=(stage1 "stage2_${stage2_env}" stage3 stage4 stage5)
   mkdir -p "${root}"
   echo $$ > "${root}/run_stages.pid"
@@ -65,10 +71,10 @@ main() {
       args+=(--config.model.init_checkpoint="${previous}")
     fi
     echo "=== $(date -u +%FT%TZ) stage ${stage}:" \
-      "${python} -m opd.main ${args[*]} ${EXTRA:-}"
+      "${python} -m ${module} ${args[*]} ${EXTRA:-}"
     # shellcheck disable=SC2086  # EXTRA is a list of flags.
-    "${python}" -m opd.main "${args[@]}" ${EXTRA:-}
-    tar czf "${root}/${names[i]}.tgz" --exclude='step_*' \
+    "${python}" -m "${module}" "${args[@]}" ${EXTRA:-}
+    tar czf "${root}/${names[i]}.tgz" --exclude='step_*' --exclude='checkpoint-*' \
       -C "${root}" "${names[i]}"
     if [[ -n "${SAVE:-}" ]]; then
       mkdir -p "${SAVE}"

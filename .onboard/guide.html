@@ -739,17 +739,20 @@ train.lr = 1e-5          # Tinker's math RL recipe</code></pre>
       <p class="eyebrow">Beyond one machine</p>
       <h2>Scale it, then build on it</h2>
       <div class="prose">
-        <p><code>opd/trainer.py</code> is written to be read. To go past one device, <code>opd/trl_train.py</code> hands the same environment classes and the same reward to TRL's <code>GRPOTrainer</code>, which adds vLLM generation and multi-GPU training. The environments need no changes: they already follow TRL's <code>environment_factory</code> convention (<code>reset(**task)</code>; every other public method is a tool).</p>
+        <p><code>opd/trainer.py</code> is written to be read. To go past one device, <code>opd/trl_train.py</code> runs every stage config on TRL's <code>GRPOTrainer</code>, which adds vLLM generation and multi-GPU training. The environments need no changes: they already follow TRL's <code>environment_factory</code> convention (<code>reset(**task)</code>; every other public method is a tool).</p>
+        <p>TRL has no teacher, so <code>OPDTrainer</code> adds one. It lets <code>GRPOTrainer</code> sample and grade a batch as usual, asks the teacher for the log-prob of every sampled token, and hands GRPO's loss the same per-token advantage as <code>losses.py</code>: <code>reward_coef&nbsp;&times;&nbsp;A_task&nbsp;&minus;&nbsp;teacher_coef&nbsp;&times;&nbsp;(log&nbsp;p&nbsp;&minus;&nbsp;log&nbsp;q)</code>. Everything else (the clipped surrogate, masking tool results out of the loss, the multi-turn tool loop) is TRL's own code.</p>
       </div>
       <div class="cmd">
         <div class="cmd-row"><pre><code>uv pip install -e "trl[vllm]" --config-settings editable_mode=compat  # Linux + CUDA
-python -m opd.trl_train --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl
-accelerate launch -m opd.trl_train --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl</code></pre><button class="copy" type="button">Copy</button></div>
+python -m opd.trl_train --config=opd/configs/stage1_distill.py:a100 --use_vllm --workdir=runs/trl/stage1
+accelerate launch -m opd.trl_train --config=opd/configs/stage1_distill.py:a100 --use_vllm --workdir=runs/trl/stage1
+BACKEND=trl EXTRA=--use_vllm scripts/run_stages.sh a100   # all five, chained</code></pre><button class="copy" type="button">Copy</button></div>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>This repo</th><th>TRL GRPOConfig</th></tr></thead>
           <tbody>
+            <tr><td><code>loss.teacher_coef</code> / <code>reward_coef</code></td><td><code>OPDConfig.teacher_coef</code> / <code>reward_coef</code> (added by <code>opd/trl_train.py</code>); only the <code>"sampled"</code> teacher estimator</td></tr>
             <tr><td><code>train.samples_per_prompt</code></td><td><code>num_generations</code></td></tr>
             <tr><td><code>train.num_minibatches</code></td><td>optimizer steps per generation batch (<code>steps_per_generation</code>)</td></tr>
             <tr><td><code>loss.clip_low</code> / <code>clip_high</code></td><td><code>epsilon</code> / <code>epsilon_high</code></td></tr>

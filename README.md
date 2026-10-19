@@ -12,7 +12,10 @@ with GRPO. It runs on one Apple M5 Pro (48 GB) or one A100 (80 GB).
 | 4. Distillation + reward | The teacher's per-token signal plus a task-success reward (GRPO groups). |
 | 5. GRPO agent RL | The environment's reward alone; scale out with TRL + vLLM. |
 
-All stages share one loop and one loss; only the config changes.
+All stages share one loop and one loss; only the config changes. Two trainers
+run the same configs: `opd/trainer.py`, written from scratch to be read, and
+TRL's `GRPOTrainer` with a teacher term added (`opd/trl_train.py`), for vLLM
+and multiple GPUs.
 
 - Setup and commands: [`ONBOARD.md`](ONBOARD.md)
 - Step-by-step guide: open [`.onboard/guide.html`](.onboard/guide.html) in a browser

@@ -15,7 +15,8 @@ source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
-TRL is pinned as a git submodule in `trl/`:
+TRL, for the TRL backend (`opd/trl_train.py`), is pinned as a git submodule in
+`trl/`:
 
 ```bash
 git submodule update --init trl
@@ -44,6 +45,7 @@ Then a minutes-long smoke run with the smallest Qwen3 models:
 
 ```bash
 python -m opd.main --config=opd/configs/stage1_distill.py:debug --workdir=runs/debug
+python -m opd.trl_train --config=opd/configs/stage1_distill.py:debug --workdir=runs/trl/debug
 ```
 
 ## Run the stages
@@ -58,7 +60,6 @@ Pick the preset after the colon: `mps` (Apple M5 Pro, 48 GB) or `a100`
 | 3. Multi-tool, multi-turn | `python -m opd.main --config=opd/configs/stage3_multi_tool.py:mps --workdir=runs/stage3` |
 | 4. Distillation + task reward | `python -m opd.main --config=opd/configs/stage4_distill_reward.py:mps --workdir=runs/stage4` |
 | 5. GRPO agent RL | `python -m opd.main --config=opd/configs/stage5_grpo.py:mps --workdir=runs/stage5` |
-| 5. At scale (TRL + vLLM) | `python -m opd.trl_train --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl` |
 
 Or run them all in order, each stage starting from the previous one's
 `final/` (stages that already finished are skipped; see the script header for
@@ -72,6 +73,26 @@ Each run writes `config.json`, `metrics.jsonl` (one JSON line per step),
 `samples.jsonl` (decoded episodes, tool results wrapped in `[env]...[/env]`)
 and checkpoints (`step_N/`, `final/`) to its workdir.
 
+### On TRL
+
+Every stage also runs on TRL's `GRPOTrainer`, from the same configs:
+`OPDTrainer` (`opd/trl_train.py`) adds the teacher's per-token term to TRL's
+advantage. Swap `opd.main` for `opd.trl_train`:
+
+```bash
+python -m opd.trl_train --config=opd/configs/stage1_distill.py:mps --workdir=runs/trl/stage1
+python -m opd.trl_train --config=opd/configs/stage1_distill.py:a100 --use_vllm --workdir=runs/trl/stage1  # CUDA
+accelerate launch -m opd.trl_train --config=... --use_vllm --workdir=...  # several GPUs
+BACKEND=trl scripts/run_stages.sh mps  # all five, chained, under runs/trl/mps
+```
+
+A TRL run writes `trainer_state.json` (every logged metric, including
+`teacher_kl` and `eval_reward`), `completions/*.parquet` (sampled episodes),
+`checkpoint-N/` and `final/`. Differences from `opd.main`: only the "sampled"
+teacher estimator; evaluation samples at the training temperature instead of
+greedily, with no teacher baseline; and `ref_kl_coef` becomes TRL's k3 loss
+term.
+
 ## Code map
 
 | File | What it does |
@@ -83,4 +104,4 @@ and checkpoints (`step_N/`, `final/`) to its workdir.
 | `opd/models.py` | Loading the student (LoRA or full), teacher and reference. |
 | `opd/envs/` | Calculator, SQLite, JSON and multi-tool environments; GSM8K prompts. |
 | `opd/configs/` | One config per stage plus shared defaults and hardware presets. |
-| `opd/trl_train.py` | Stage 5 on TRL's GRPOTrainer, for vLLM and multiple GPUs. |
+| `opd/trl_train.py` | Every stage on TRL's GRPOTrainer; `OPDTrainer` adds the teacher term to the advantage. For vLLM and multiple GPUs. |
