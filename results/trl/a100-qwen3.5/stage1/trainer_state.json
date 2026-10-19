@@ -6905,6 +6905,15 @@
       "eval_steps_per_second": 0.185,
       "eval_teacher_kl": 0.1684857658110559,
       "step": 200
+    },
+    {
+      "epoch": 1.0,
+      "step": 200,
+      "total_flos": 0.0,
+      "train_loss": 0.15531801890581845,
+      "train_runtime": 5074.8347,
+      "train_samples_per_second": 1.261,
+      "train_steps_per_second": 0.039
     }
   ],
   "logging_steps": 1,
