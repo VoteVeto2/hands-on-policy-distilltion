@@ -8,7 +8,7 @@ Each rollout batch feeds two optimizer steps, so the second step trains on
 slightly stale samples: that is where the PPO clip and `clip_frac` come alive.
 
 To scale beyond one GPU, run the same environment with TRL's GRPOTrainer and
-vLLM: `python -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100`.
+vLLM: `python -m opd.trl_train --config=opd/configs/stage5_grpo.py:a100`.
 """
 
 from opd.configs import base

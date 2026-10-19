@@ -262,7 +262,8 @@ def evaluate(
   return episode_metrics(episodes)
 
 
-def _validate(config: config_dict.ConfigDict) -> None:
+def validate(config: config_dict.ConfigDict) -> None:
+  """Fails loudly on settings that cannot train (shared with `trl_train`)."""
   if config.loss.teacher_coef > 0 and not config.model.teacher:
     raise ValueError("loss.teacher_coef > 0 needs model.teacher.")
   if config.loss.teacher_estimator not in ("sampled", "full"):
@@ -316,7 +317,7 @@ class _Logger:
 
 def train(config: config_dict.ConfigDict, workdir: str) -> None:
   """Runs one stage end to end. See the module docstring."""
-  _validate(config)
+  validate(config)
   os.makedirs(workdir, exist_ok=True)
   with open(os.path.join(workdir, "config.json"), "w") as f:
     f.write(config.to_json_best_effort(indent=2))

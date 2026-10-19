@@ -58,7 +58,7 @@ Pick the preset after the colon: `mps` (Apple M5 Pro, 48 GB) or `a100`
 | 3. Multi-tool, multi-turn | `python -m opd.main --config=opd/configs/stage3_multi_tool.py:mps --workdir=runs/stage3` |
 | 4. Distillation + task reward | `python -m opd.main --config=opd/configs/stage4_distill_reward.py:mps --workdir=runs/stage4` |
 | 5. GRPO agent RL | `python -m opd.main --config=opd/configs/stage5_grpo.py:mps --workdir=runs/stage5` |
-| 5. At scale (TRL + vLLM) | `python -m opd.trl_grpo --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl` |
+| 5. At scale (TRL + vLLM) | `python -m opd.trl_train --config=opd/configs/stage5_grpo.py:a100 --use_vllm --workdir=runs/stage5_trl` |
 
 Or run them all in order, each stage starting from the previous one's
 `final/` (stages that already finished are skipped; see the script header for
@@ -83,4 +83,4 @@ and checkpoints (`step_N/`, `final/`) to its workdir.
 | `opd/models.py` | Loading the student (LoRA or full), teacher and reference. |
 | `opd/envs/` | Calculator, SQLite, JSON and multi-tool environments; GSM8K prompts. |
 | `opd/configs/` | One config per stage plus shared defaults and hardware presets. |
-| `opd/trl_grpo.py` | Stage 5 on TRL's GRPOTrainer, for vLLM and multiple GPUs. |
+| `opd/trl_train.py` | Stage 5 on TRL's GRPOTrainer, for vLLM and multiple GPUs. |

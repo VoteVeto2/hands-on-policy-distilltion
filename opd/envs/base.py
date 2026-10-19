@@ -2,7 +2,7 @@
 
 An environment is the world one episode runs in. Its conventions match TRL's
 `environment_factory`, so the same class trains with this repo's trainer and
-with `trl.GRPOTrainer` at scale (see `opd/trl_grpo.py`):
+with `trl.GRPOTrainer` at scale (see `opd/trl_train.py`):
 
   * `reset(**task)` prepares the state for one task. Overrides must accept and
     forward `**task` (`super().reset(**task)`), so that environments compose
