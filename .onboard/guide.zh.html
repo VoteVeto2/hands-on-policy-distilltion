@@ -1,0 +1,1119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>动手学策略蒸馏</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: a lab manual. Sticky stage rail on the left (top strip on phones),
+   one reading column, and the token tape as the single bold element. */
+:root {
+  --paper: #f3f6f8;
+  --surface: #ffffff;
+  --ink: #14202e;
+  --muted: #566476;
+  --rule: #d6dde5;
+  --code: #eaeff4;
+  --student: #0d7a70;
+  --student-soft: #d3eeea;
+  --env: #b25a0a;
+  --env-soft: #f8e6cf;
+  --prompt-soft: #e3e8ee;
+  --neg: #c0284d;
+  --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.84rem;
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.55rem;
+  --step-3: 2.2rem;
+  --step-4: clamp(2.3rem, 5.4vw, 3.6rem);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d141c;
+    --surface: #131c27;
+    --ink: #e2e8ef;
+    --muted: #97a5b5;
+    --rule: #263343;
+    --code: #0a1118;
+    --student: #35bfae;
+    --student-soft: #12332f;
+    --env: #e8a04a;
+    --env-soft: #3a2914;
+    --prompt-soft: #1f2a37;
+    --neg: #f2648a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d141c;
+  --surface: #131c27;
+  --ink: #e2e8ef;
+  --muted: #97a5b5;
+  --rule: #263343;
+  --code: #0a1118;
+  --student: #35bfae;
+  --student-soft: #12332f;
+  --env: #e8a04a;
+  --env-soft: #3a2914;
+  --prompt-soft: #1f2a37;
+  --neg: #f2648a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--ink); text-decoration-color: var(--student); text-underline-offset: 3px; }
+a:hover { color: var(--student); }
+:focus-visible { outline: 2px solid var(--student); outline-offset: 2px; border-radius: 3px; }
+code, pre, kbd { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--code); padding: 0.08em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+pre {
+  background: var(--code);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  line-height: 1.5;
+  margin: 0;
+}
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-stretch: 78%;
+  line-height: 1.08;
+  text-wrap: balance;
+  margin: 0;
+}
+h2 { font-size: var(--step-3); font-weight: 800; }
+h3 { font-size: var(--step-1); font-weight: 700; font-stretch: 90%; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 48px;
+  padding-block: 32px 96px;
+}
+nav.rail {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 24px);
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.92rem;
+}
+nav.rail a {
+  display: grid;
+  grid-template-columns: 2.1em 1fr;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-decoration: none;
+  color: var(--muted);
+}
+nav.rail a:hover, nav.rail a.active { background: var(--surface); color: var(--ink); }
+nav.rail a .n { font-family: var(--font-mono); font-size: 0.78rem; color: var(--student); }
+nav.rail a.done .n::after { content: " \2713"; }
+nav.rail .group { margin-top: 14px; margin-bottom: 4px; padding-left: 8px; }
+main { min-width: 0; display: flex; flex-direction: column; gap: 88px; }
+section { display: flex; flex-direction: column; gap: 22px; scroll-margin-top: 24px; }
+.prose { max-width: 68ch; display: flex; flex-direction: column; gap: 14px; }
+
+/* Hero */
+.hero { gap: 26px; }
+.hero h1 { font-size: var(--step-4); font-weight: 850; font-stretch: 72%; letter-spacing: -0.01em; max-width: 18ch; }
+.hero .lede { font-size: var(--step-1); max-width: 60ch; color: var(--muted); }
+.hero .lede strong { color: var(--ink); font-weight: 600; }
+
+/* Token tape */
+.tape {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.tape-controls { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; }
+.stage-pick { display: flex; gap: 4px; flex-wrap: wrap; }
+.stage-pick button {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.stage-pick button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.knob { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 0.82rem; }
+.knob input[type="range"] { width: 110px; accent-color: var(--student); }
+.knob output { min-width: 3.2ch; text-align: right; font-variant-numeric: tabular-nums; }
+.formula { font-family: var(--font-mono); font-size: 0.86rem; color: var(--muted); overflow-x: auto; white-space: nowrap; }
+.formula b { color: var(--ink); font-weight: 600; }
+.tape-note { font-size: 0.92rem; margin-top: -8px; }
+.tokens { display: flex; flex-wrap: wrap; gap: 4px 3px; align-items: flex-end; }
+.tok {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  cursor: default;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  text-align: left;
+}
+.tok { max-width: 100%; }
+.tok .txt { padding: 2px 5px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tok.p .txt { background: var(--prompt-soft); color: var(--muted); }
+.tok.s .txt { background: var(--student-soft); }
+.tok.e .txt { background: var(--env-soft); }
+.tok .bar { height: 46px; position: relative; }
+.tok .bar::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--rule); }
+.tok .bar i { position: absolute; left: 22%; right: 22%; border-radius: 2px; }
+.tok .bar i.pos { background: var(--student); bottom: 50%; }
+.tok .bar i.neg { background: var(--neg); top: 50%; }
+.tok:hover .txt, .tok:focus-visible .txt, .tok.sel .txt { outline: 1.5px solid var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.detail {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 18px;
+  font-variant-numeric: tabular-nums;
+}
+.detail .k { color: var(--muted); }
+.detail .wide { grid-column: 1 / -1; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 0.76rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+tr:last-child td { border-bottom: none; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+/* Memory bars */
+.mem { display: flex; flex-direction: column; gap: 10px; }
+.mem-row { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 12px; align-items: center; font-size: 0.88rem; }
+.mem-track { height: 26px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; display: flex; overflow: hidden; position: relative; }
+.mem-track span { display: flex; align-items: center; padding: 0 6px; font-family: var(--font-mono); font-size: 0.72rem; white-space: nowrap; overflow: hidden; color: var(--ink); }
+.mem-track .t { background: var(--prompt-soft); }
+.mem-track .st { background: var(--student-soft); }
+.mem-track .opt { background: var(--student); color: var(--surface); }
+.mem-track .room { background: repeating-linear-gradient(135deg, var(--paper) 0 6px, var(--prompt-soft) 6px 8px); color: var(--muted); }
+.mem-track .cap { position: absolute; top: -2px; bottom: -2px; border-left: 2px dashed var(--neg); }
+
+/* Diagram */
+.diagram { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; overflow-x: auto; }
+.diagram svg { display: block; min-width: 640px; width: 100%; height: auto; }
+.diagram text { font-family: var(--font-mono); font-size: 12px; fill: var(--ink); }
+.diagram .box { fill: var(--paper); stroke: var(--rule); stroke-width: 1.2; }
+.diagram .box.s { fill: var(--student-soft); stroke: var(--student); }
+.diagram .box.e { fill: var(--env-soft); stroke: var(--env); }
+.diagram .title { font-family: var(--font-display); font-size: 15px; font-weight: 800; font-stretch: 80%; }
+.diagram .sub { fill: var(--muted); font-size: 11px; }
+.diagram .arrow { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+.diagram .head { fill: var(--muted); }
+
+/* Stage cards */
+.stage-head { display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap; }
+.stage-num {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-stretch: 62%;
+  font-size: 3.4rem;
+  line-height: 0.9;
+  color: var(--student);
+  font-variant-numeric: tabular-nums;
+}
+.stage-head .titles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 28px; }
+.block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.block h3 { font-family: var(--font-mono); font-stretch: 100%; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+ul.clean, ol.clean { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.watch { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.watch li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 6px; }
+.watch .dir { font-family: var(--font-mono); font-weight: 600; text-align: center; }
+.dir.up { color: var(--student); }
+.dir.down { color: var(--neg); }
+.dir.flat { color: var(--muted); }
+.cmd { display: flex; flex-direction: column; gap: 6px; }
+.cmd-row { display: flex; gap: 8px; align-items: stretch; }
+.cmd-row pre { flex: 1; min-width: 0; }
+.copy {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+.copy:hover { color: var(--ink); }
+.callout {
+  border-left: 3px solid var(--env);
+  background: var(--surface);
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  max-width: 76ch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.callout.key { border-left-color: var(--student); }
+.done-toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 0.9rem; color: var(--muted); cursor: pointer; }
+.done-toggle input { accent-color: var(--student); width: 16px; height: 16px; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.note { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.note h3 { font-size: 1.05rem; }
+.refs { display: flex; flex-direction: column; gap: 8px; padding-left: 1.2em; margin: 0; }
+footer { color: var(--muted); font-size: 0.85rem; }
+
+@media (max-width: 960px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 28px; padding-block: 0 72px; }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--paper); }
+  nav.rail {
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    flex-direction: row;
+    overflow-x: auto;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    padding-block: 10px;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  nav.rail .group { display: none; }
+  nav.rail a { grid-template-columns: auto auto; gap: 6px; }
+  section { scroll-margin-top: 64px; }
+}
+@media (max-width: 640px) {
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .stage-num { font-size: 2.6rem; }
+  .mem-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+</style>
+<style>
+/* Chinese overrides: CJK fallbacks, and widths measured in em instead of ch
+   (a CJK glyph is about two ch wide). */
+:root {
+  --font-display: "Archivo", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+}
+body { line-height: 1.75; }
+.hero h1 { max-width: 13em; letter-spacing: 0.01em; }
+.hero .lede { max-width: 38em; }
+.prose { max-width: 42em; }
+.callout { max-width: 46em; }
+.eyebrow { letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="章节">
+    <span class="eyebrow group">开始</span>
+    <a href="#idea"><span class="n">&middot;</span><span>核心思想</span></a>
+    <a href="#setup"><span class="n">&middot;</span><span>环境与显存预算</span></a>
+    <a href="#map"><span class="n">&middot;</span><span>代码地图</span></a>
+    <span class="eyebrow group">阶段</span>
+    <a href="#stage1" data-stage="1"><span class="n">1</span><span>纯蒸馏</span></a>
+    <a href="#stage2" data-stage="2"><span class="n">2</span><span>单个工具</span></a>
+    <a href="#stage3" data-stage="3"><span class="n">3</span><span>多工具、多轮</span></a>
+    <a href="#stage4" data-stage="4"><span class="n">4</span><span>教师 + 奖励</span></a>
+    <a href="#stage5" data-stage="5"><span class="n">5</span><span>GRPO 智能体 RL</span></a>
+    <span class="eyebrow group">进阶</span>
+    <a href="#scale"><span class="n">&middot;</span><span>扩展与延伸</span></a>
+    <a href="#notes"><span class="n">&middot;</span><span>实战笔记</span></a>
+    <a href="#refs"><span class="n">&middot;</span><span>参考文献</span></a>
+  </nav>
+
+  <main>
+    <section class="hero" id="top">
+      <p class="eyebrow">后训练实验 &middot; Qwen3-8B 教 Qwen3-1.7B &middot; Apple M5 Pro 或一张 A100</p>
+      <h1>学生写下的每一个 token 都会被打分。</h1>
+      <p class="lede">本指南带你走完一条从零实现的流水线：把一个 1.7B 模型从<strong>在线策略蒸馏（on-policy distillation）</strong>一路训练成<strong>用强化学习训练的工具调用智能体</strong>。五个阶段跑的是同一个循环：学生采样，评判者打分，学生更新。变化的只是谁来当评判者，以及它多久发言一次。</p>
+
+      <div class="tape" id="tape">
+        <div class="tape-controls">
+          <div class="stage-pick" role="group" aria-label="阶段">
+            <button type="button" data-stage="1" aria-pressed="true">阶段 1</button>
+            <button type="button" data-stage="2" aria-pressed="false">阶段 2</button>
+            <button type="button" data-stage="3" aria-pressed="false">阶段 3</button>
+            <button type="button" data-stage="4" aria-pressed="false">阶段 4</button>
+            <button type="button" data-stage="5" aria-pressed="false">阶段 5</button>
+          </div>
+          <label class="knob" for="kt">teacher_coef <input id="kt" type="range" min="0" max="2" step="0.1" value="1"><output id="kt-out">1.0</output></label>
+          <label class="knob" for="kr">reward_coef <input id="kr" type="range" min="0" max="2" step="0.1" value="0"><output id="kr-out">0.0</output></label>
+        </div>
+        <p class="formula">A<sub>t</sub> = <b>teacher_coef</b> &middot; (log q(y<sub>t</sub>) &minus; log p(y<sub>t</sub>)) + <b>reward_coef</b> &middot; &Acirc;<sub>group</sub></p>
+        <p class="tape-note" id="tape-caption"></p>
+        <div class="tokens" id="tokens" aria-label="一条采样得到的 episode，每个 token 一个色块"></div>
+        <div class="legend">
+          <span><i class="sw" style="background: var(--prompt-soft)"></i>提示词（上下文）</span>
+          <span><i class="sw" style="background: var(--student-soft)"></i>学生动作（计入损失）</span>
+          <span><i class="sw" style="background: var(--env-soft)"></i>工具结果（上下文，mask 为 0）</span>
+          <span><i class="sw" style="background: var(--student)"></i>正优势</span>
+          <span><i class="sw" style="background: var(--neg)"></i>负优势</span>
+        </div>
+        <div class="detail" id="detail" aria-live="polite"></div>
+        <p class="muted" style="font-size: 0.82rem">对数概率仅为示意，并按可读的片段切分；真实 token 更细。悬停或点击色块查看数值。柱高截断在 &plusmn;5。</p>
+      </div>
+    </section>
+
+    <section id="idea">
+      <p class="eyebrow">从这里开始</p>
+      <h2>核心思想</h2>
+      <div class="prose">
+        <p>各种后训练方法的区别在两点：用<em>谁</em>的样本训练，以及每个样本携带<em>多少</em>反馈。监督微调用别人写的文本训练，学生永远看不到自己的错误。强化学习用学生自己的样本训练，但整条 episode 只换来一个数字。在线策略蒸馏兼取两者之长：学生自己写，更强的教师给每个 token 打分。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>方法</th><th>样本来源</th><th>反馈</th><th>本仓库中</th></tr></thead>
+          <tbody>
+            <tr><td>监督微调</td><td>离线策略（教师或数据集）</td><td>稠密，逐 token</td><td>未使用</td></tr>
+            <tr><td>强化学习</td><td>在线策略（学生自己）</td><td>稀疏，逐 episode</td><td>阶段 5</td></tr>
+            <tr><td>在线策略蒸馏</td><td>在线策略（学生自己）</td><td>稠密，逐 token</td><td>阶段 1&ndash;3</td></tr>
+            <tr><td>蒸馏 + 奖励</td><td>在线策略（学生自己）</td><td>稠密 + 稀疏</td><td>阶段 4</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>连接这几行的只是一行代数。从学生 p 中采样 y<sub>t</sub>，把 <code>log q(y<sub>t</sub>) &minus; log p(y<sub>t</sub>)</code> 当作奖励。它的策略梯度在期望上恰好等于逐 token 反向 KL，即 KL(p&nbsp;&#8741;&nbsp;q) 的梯度。所以蒸馏<em>就是</em>一种强化学习，只不过奖励是稠密的、由教师为每个 token 计算，同一个带截断的策略梯度损失可以服务全部五个阶段。<code>opd/losses_test.py</code> 用数值方法验证了这个等式（<code>test_distillation_advantage_gives_reverse_kl_gradient</code>）。</p>
+        <p>为什么用反向 KL？因为它是<em>寻模（mode-seeking）</em>的：学生在教师认为不太可能的地方放概率质量会被惩罚，但不会被迫覆盖教师可能说出的所有内容。这很适合无法完整表达大教师的小学生模型。</p>
+        <p>同一项还会再出现一次。让 RL 策略不偏离起点太远的 KL 惩罚，就是把“过去的自己”当作教师的同一个估计量：<code>ref_kl_coef &middot; (log ref(y<sub>t</sub>) &minus; log p(y<sub>t</sub>))</code>，加到优势上。</p>
+      </div>
+      <pre><code># opd/trainer.py, update()：每个阶段的核心
+advantages = config.loss.reward_coef * batch.task_advantages[:, None]
+if batch.teacher_logp is not None:
+  teacher_kl = old_logp - batch.teacher_logp          # log p - log q, per token
+  advantages = advantages - config.loss.teacher_coef * teacher_kl
+per_token, clipped = losses.clipped_policy_loss(
+    logp, old_logp, advantages, config.loss.clip_low, config.loss.clip_high)
+loss = (per_token * batch.action_mask).sum() / num_tokens</code></pre>
+    </section>
+
+    <section id="setup">
+      <p class="eyebrow">阶段 1 之前</p>
+      <h2>环境搭建与显存预算</h2>
+      <div class="cmd">
+        <div class="cmd-row"><pre><code>uv venv .venv &amp;&amp; source .venv/bin/activate
+uv pip install -e ".[dev]"
+python -m pytest -q opd        # CPU 上 2-3 分钟，无需下载</code></pre><button class="copy" type="button">复制</button></div>
+        <div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage1_distill.py:debug --workdir=runs/debug</code></pre><button class="copy" type="button">复制</button></div>
+      </div>
+      <div class="prose">
+        <p><code>:debug</code> 预设会换成 Qwen3-0.6B（学生）和 Qwen3-1.7B（教师），只跑四步。先跑它：它只下载小模型，几分钟内就能走遍所有代码路径。之后在冒号后换成 <code>:mps</code> 或 <code>:a100</code>。任何配置字段都可以在命令行覆盖，例如 <code>--config.train.lr=3e-5</code>。</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Apple M5 Pro 48 GB &middot; <code>:mps</code></th><th>A100 80 GB &middot; <code>:a100</code></th></tr></thead>
+          <tbody>
+            <tr><td>后端</td><td>PyTorch MPS，Hugging Face <code>generate</code></td><td>CUDA，bf16 autocast；通过 TRL 桥接使用 vLLM</td></tr>
+            <tr><td>学生</td><td>Qwen3-1.7B，在冻结的 bf16 底座上加 rank 32 的 LoRA</td><td>同左；全参数微调可选开启</td></tr>
+            <tr><td>教师</td><td>Qwen3-8B，bf16，冻结</td><td>同左</td></tr>
+            <tr><td>每步提示词数（阶段 1）</td><td class="num">8</td><td class="num">32</td></tr>
+            <tr><td>学生每轮 token 数（阶段 1）</td><td class="num">512</td><td class="num">1,024</td></tr>
+            <tr><td>并行生成的序列数</td><td class="num">16</td><td class="num">64</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="block">
+        <h3>显存都花在哪儿</h3>
+        <div class="mem" id="mem"></div>
+        <p class="muted" style="font-size: 0.85rem">bf16 下每个参数 2 字节：Qwen3-8B（8.2B 参数）&asymp; 16.4 GB，Qwen3-1.7B &asymp; 3.4 GB。在所有线性层上加 rank 32 的 LoRA 约有 35M 可训练参数；加上 fp32 权重、梯度和 Adam 的两个动量，约 0.6 GB（运行日志会打印确切数量）。全参数微调需要保存 fp32 主权重、梯度和 Adam 状态：每个参数 16 字节，1.7B 模型约 27 GB。Mac 那几行上的虚线是 macOS 默认允许 GPU 使用的份额，约为内存的 75%（36 GB）；斜线填充的“余量”是留给激活值、logits 和 KV 缓存的空间。</p>
+      </div>
+    </section>
+
+    <section id="map">
+      <p class="eyebrow">按这个顺序读代码</p>
+      <h2>代码地图</h2>
+      <div class="diagram">
+        <svg viewBox="0 0 900 300" role="img" aria-label="训练循环：采样、打分、更新，以及环境和配置">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+          </defs>
+          <rect class="box s" x="20" y="40" width="250" height="120" rx="8"/>
+          <text class="title" x="36" y="68">1 &middot; 采样 Rollout</text>
+          <text x="36" y="92">rollout.sample_episodes</text>
+          <text x="36" y="110">rollout.generate &middot; rollout._step</text>
+          <text x="36" y="128">chat.encode_prompt / tool_results</text>
+          <text class="sub" x="36" y="148">学生以 T = 1 采样</text>
+
+          <rect class="box" x="325" y="40" width="250" height="120" rx="8"/>
+          <text class="title" x="341" y="68">2 &middot; 打分 Score</text>
+          <text x="341" y="92">trainer.collate</text>
+          <text x="341" y="110">trainer.score</text>
+          <text x="341" y="128">teacher / old / ref log-probs</text>
+          <text class="sub" x="341" y="148">冻结的前向计算，不求梯度</text>
+
+          <rect class="box s" x="630" y="40" width="250" height="120" rx="8"/>
+          <text class="title" x="646" y="68">3 &middot; 更新 Update</text>
+          <text x="646" y="92">trainer.update</text>
+          <text x="646" y="110">losses.clipped_policy_loss</text>
+          <text x="646" y="128">losses.group_advantages</text>
+          <text class="sub" x="646" y="148">对 LoRA 权重做 AdamW</text>
+
+          <rect class="box e" x="20" y="210" width="250" height="70" rx="8"/>
+          <text class="title" x="36" y="238">环境 Environment</text>
+          <text x="36" y="260">envs/*.py &middot; tools &middot; grade()</text>
+
+          <rect class="box" x="325" y="210" width="555" height="70" rx="8"/>
+          <text class="title" x="341" y="238">配置 Config</text>
+          <text x="341" y="260">configs/stage*.py: env, teacher_coef, reward_coef, group size</text>
+
+          <path class="arrow" d="M270 100 L322 100" marker-end="url(#arr)"/>
+          <path class="arrow" d="M575 100 L627 100" marker-end="url(#arr)"/>
+          <path class="arrow" d="M755 40 C755 8 145 8 145 37" marker-end="url(#arr)"/>
+          <text class="sub" x="380" y="34">新权重 &rarr; 下一次采样</text>
+          <path class="arrow" d="M120 160 L120 207" marker-end="url(#arr)"/>
+          <path class="arrow" d="M170 207 L170 163" marker-end="url(#arr)"/>
+        </svg>
+      </div>
+      <ol class="clean">
+        <li><code>opd/losses.py</code>：所有阶段的数学，约 150 行。先读它。</li>
+        <li><code>opd/rollout.py</code>：一条 episode 如何变成一个带 action mask 的 token 序列。</li>
+        <li><code>opd/chat.py</code>：Qwen3 对话格式、工具 schema、工具调用解析。</li>
+        <li><code>opd/trainer.py</code>：<code>collate</code>、<code>score</code>、<code>update</code>、<code>train</code>。</li>
+        <li><code>opd/envs/base.py</code>，然后读一个具体环境，例如 <code>calculator.py</code>。</li>
+        <li><code>opd/configs/base.py</code> 以及五个阶段配置：这是各阶段之间唯一不同的地方。</li>
+      </ol>
+      <div class="callout key">
+        <p><strong>每次运行的输出</strong>都在 <code>--workdir</code> 下：<code>metrics.jsonl</code>（每步一行 JSON）、<code>samples.jsonl</code>（解码后的 episode，工具结果包在 <code>[env]&hellip;[/env]</code> 中）、<code>config.json</code>，以及检查点 <code>step_N/</code> 和 <code>final/</code>。经常读样本。大多数 RL bug 在曲线上显现之前，就已经能在文本里看出来。</p>
+      </div>
+    </section>
+
+    <section id="stage1" data-stage="1">
+      <div class="stage-head">
+        <span class="stage-num">01</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage1_distill.py</p><h2>纯在线策略蒸馏</h2></div>
+      </div>
+      <div class="prose">
+        <p>学生回答 GSM8K 小学数学题。教师读每个答案，并对每个 token 报告自己写出这个 token 的可能性有多大。仅此而已：没有奖励，没有工具，损失里也没有参考答案。参考答案只用来衡量留出集上的准确率，所以你可以看到准确率在一个从未提及“对错”的信号下不断上升。</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>关键参数</h3>
+          <pre><code>env = "gsm8k"
+loss.teacher_coef = 1.0
+loss.reward_coef = 0.0
+train.samples_per_prompt = 1
+rollout.max_turns = 1
+train.lr = 1e-4      # LoRA (Tinker's OPD recipe)</code></pre>
+        </div>
+        <div class="block">
+          <h3>阅读</h3>
+          <ul class="clean">
+            <li><code>losses.token_logprobs</code>：float32，一次处理一行。</li>
+            <li><code>trainer.forward_logits</code>：<code>logits_to_keep</code> 跳过提示词位置。</li>
+            <li><code>trainer.update</code>：优势中的教师项。</li>
+            <li><code>rollout.generate</code>：采样参数的覆盖，以及为什么要覆盖。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage1_distill.py:mps --workdir=runs/stage1</code></pre><button class="copy" type="button">复制</button></div></div>
+      <div class="grid2">
+        <div class="block">
+          <h3>观察</h3>
+          <ul class="watch">
+            <li><span class="dir down">&darr;</span><span><code>teacher_kl</code>：采样 token 上的平均逐 token 反向 KL。这是定义本阶段的那条曲线。</span></li>
+            <li><span class="dir up">&uarr;</span><span><code>eval/reward</code>：64 道留出题上的贪心解码准确率。</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>teacher_eval/reward</code>：教师的准确率，只记录一次。这是你的上限。</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>entropy</code>、<code>completion_tokens</code>：任一项突然下降，都说明学生找到了退化的捷径。</span></li>
+          </ul>
+        </div>
+        <div class="block">
+          <h3>实验</h3>
+          <ul class="clean">
+            <li><code>--config.loss.teacher_estimator=full</code>：在 152k 词表上计算精确 KL，而不是只用一个样本。比较 <code>teacher_kl</code> 曲线和显存占用。</li>
+            <li><code>--config.model.student=Qwen/Qwen3-1.7B-Base</code>：base 模型要追的差距大得多，效果也更明显。</li>
+            <li>在 A100 上：<code>--config.rollout.enable_thinking=True</code>，并给更长的 token 预算。</li>
+          </ul>
+        </div>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="1"> 我跑完了阶段 1，并读了几条样本</label>
+    </section>
+
+    <section id="stage2" data-stage="2">
+      <div class="stage-head">
+        <span class="stage-num">02</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage2_single_tool.py</p><h2>单工具智能体蒸馏</h2></div>
+      </div>
+      <div class="prose">
+        <p>现在一条 episode 有多轮。学生写出 <code>&lt;tool_call&gt;</code>，环境执行它并以 <code>&lt;tool_response&gt;</code> 回应，学生继续写。这些回应会进入上下文，但不是学生的动作，所以它们的 action mask 为 0。教师依然给学生的每个 token 打分，包括工具名和 JSON 参数，并以同一上下文中看到的工具结果为条件。</p>
+        <p>每次实验只用一个工具。每个工具教的东西不同：计算器奖励“知道心算何时会出错”，SQL 奖励“读懂错误信息”，JMESPath 奖励“探索一个你看不到的文档”。</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>关键参数</h3>
+          <pre><code>env = "calculator"   # or "sqlite", "json"
+rollout.max_turns = 4
+rollout.max_new_tokens = 256        # per turn
+rollout.max_completion_tokens = 1024  # whole episode</code></pre>
+        </div>
+        <div class="block">
+          <h3>阅读</h3>
+          <ul class="clean">
+            <li><code>chat.encode_prompt</code>：工具的 docstring 变成系统提示词里的 JSON schema。</li>
+            <li><code>chat.encode_tool_results</code>：为什么 token 总是追加，而从不重新渲染。</li>
+            <li><code>rollout._step</code>：一轮、它的工具调用、以及 mask。</li>
+            <li><code>envs/base.call_tool</code>：失败会变成错误信息，而不是崩溃。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage2_single_tool.py:mps --config.env=sqlite \
+    --config.model.init_checkpoint=runs/stage1/final --workdir=runs/stage2_sqlite</code></pre><button class="copy" type="button">复制</button></div></div>
+      <div class="grid2">
+        <div class="block">
+          <h3>观察</h3>
+          <ul class="watch">
+            <li><span class="dir up">&uarr;</span><span><code>eval/reward</code>，以及每条 episode 的 <code>tool_calls</code>。</span></li>
+            <li><span class="dir down">&darr;</span><span><code>tool_errors</code>：格式错误的调用、未知工具、SQL 错误。</span></li>
+            <li><span class="dir down">&darr;</span><span><code>truncated</code>：轮数或 token 用尽的 episode 记 0 分。</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>env_tokens</code>：学生会读、但从不在其上训练的上下文。</span></li>
+          </ul>
+        </div>
+        <div class="block">
+          <h3>实验</h3>
+          <ul class="clean">
+            <li>三个工具都跑一遍，比较 <code>tool_errors</code> 下降的速度。</li>
+            <li>练习：分别记录工具调用 token 和答案 token 上的 <code>teacher_kl</code>。学生在哪里分歧最大？</li>
+            <li>让 <code>query_sql</code> 只返回前 3 行，读读学生是如何适应的。</li>
+          </ul>
+        </div>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="2"> 我至少用一个工具跑完了阶段 2</label>
+    </section>
+
+    <section id="stage3" data-stage="3">
+      <div class="stage-head">
+        <span class="stage-num">03</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage3_multi_tool.py</p><h2>多工具、多轮，由学生自己决定</h2></div>
+      </div>
+      <div class="prose">
+        <p>每个任务都提供全部三个工具。任务组合包括单工具问题、需要串联两个工具的问题（先用 SQL 查出工资总额，再用计算器算加薪），以及完全不需要工具的简单问题。选择工具不过是多写几个 token，教师同样给它们打分：工具调用的 <code>"name"</code> 字段就是选错工具时出现大幅负优势的地方。</p>
+        <p><code>MultiToolEnv</code> 是一个空类：它继承了三个工具，协作式的 <code>reset(**task)</code> 调用链会同时构建数据库和 JSON 文档。</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>关键参数</h3>
+          <pre><code>env = "multi_tool"
+rollout.max_turns = 6
+rollout.max_completion_tokens = 1536</code></pre>
+        </div>
+        <div class="block">
+          <h3>观察（按任务类型）</h3>
+          <ul class="watch">
+            <li><span class="dir flat">&asymp;0</span><span><code>eval/tool_calls/no_tool</code>：为了算 7&nbsp;+&nbsp;5 去调工具的智能体是在浪费轮次。</span></li>
+            <li><span class="dir up">&uarr;</span><span><code>eval/reward/sql+calculator</code>、<code>eval/reward/json+calculator</code>、<code>eval/reward/sql+json</code>。</span></li>
+            <li><span class="dir flat">&asymp;2</span><span><code>eval/tool_calls/sql+calculator</code>：每个工具大约调用一次。</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage3_multi_tool.py:mps \
+    --config.model.init_checkpoint=runs/stage2_sqlite/final --workdir=runs/stage3</code></pre><button class="copy" type="button">复制</button></div></div>
+      <div class="block">
+        <h3>实验</h3>
+        <ul class="clean">
+          <li>把 <code>envs/multi_tool.py</code> 中的任务权重改为 50% <code>no_tool</code>，观察工具类任务上的工具使用是否受影响。</li>
+          <li>从阶段 1 而不是阶段 2 的检查点开始，比较前 50 步。</li>
+        </ul>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="3"> 我跑完了阶段 3，并检查了按类型拆分的指标</label>
+    </section>
+
+    <section id="stage4" data-stage="4">
+      <div class="stage-head">
+        <span class="stage-num">04</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage4_distill_reward.py</p><h2>模仿教师，加上任务奖励</h2></div>
+      </div>
+      <div class="prose">
+        <p>现在每个提示词采样 4 次。环境给每个最终答案打分（1 或 0），每条 episode 的奖励减去组内均值、再除以组内标准差，就得到一个序列级优势，加到它的每一个 token 上。教师项仍然叠加在上面，逐 token 计算。</p>
+        <p>两个信号的失效方式正好相反。教师可能会错，奖励可以纠正它。而当 4 个样本结果一致时，奖励就沉默了：<code>zero_advantage_groups</code> 报告这种情况出现的频率，在这些组里，教师项是学生唯一的学习来源。</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>关键参数</h3>
+          <pre><code>loss.teacher_coef = 1.0
+loss.reward_coef = 1.0
+loss.normalize_std = True   # GRPO; False = Dr. GRPO
+train.samples_per_prompt = 4
+train.prompts_per_step = 4
+train.lr = 5e-5</code></pre>
+        </div>
+        <div class="block">
+          <h3>观察</h3>
+          <ul class="watch">
+            <li><span class="dir up">&uarr;</span><span><code>reward</code>（训练）和 <code>eval/reward</code>。</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>zero_advantage_groups</code>：奖励什么都没教的提示词占比。</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>teacher_kl</code>：随着奖励把学生拉向它自己的方向，可能趋平或略微上升。</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage4_distill_reward.py:mps \
+    --config.model.init_checkpoint=runs/stage3/final --workdir=runs/stage4</code></pre><button class="copy" type="button">复制</button></div></div>
+      <div class="block">
+        <h3>实验</h3>
+        <ul class="clean">
+          <li>练习：在训练过程中把 <code>teacher_coef</code> 从 1 退火到 0（在 <code>trainer.train</code> 里加几行）。这就是通往阶段 5 的桥梁。</li>
+          <li><code>--config.loss.normalize_std=False</code>，比较奖励曲线。</li>
+          <li>把 <code>reward_coef</code> 设为 3，观察 <code>teacher_kl</code> 是否上升。</li>
+        </ul>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="4"> 我跑完了阶段 4，并与阶段 3 做了比较</label>
+    </section>
+
+    <section id="stage5" data-stage="5">
+      <div class="stage-head">
+        <span class="stage-num">05</span>
+        <div class="titles"><p class="eyebrow">opd/configs/stage5_grpo.py</p><h2>GRPO：基于环境反馈的智能体 RL</h2></div>
+      </div>
+      <div class="prose">
+        <p>没有教师。唯一的评分是最终答案对不对，而关于如何得到答案的唯一线索来自环境本身：SQL 错误信息、空的查询结果、计算器输出。省下教师的 16 GB 后，学生对每个提示词采样 8 条 episode。</p>
+        <p>现在每批 rollout 会喂给两次优化器更新。第二次更新所用的样本来自第一次更新之前的策略，因此概率比偏离 1，PPO 截断开始生效：留意 <code>clip_frac</code>。</p>
+      </div>
+      <div class="grid2">
+        <div class="block">
+          <h3>关键参数</h3>
+          <pre><code>model.teacher = ""
+loss.teacher_coef = 0.0
+loss.reward_coef = 1.0
+loss.clip_low = 0.2
+loss.clip_high = 0.28    # DAPO clip-higher
+loss.ref_kl_coef = 0.0   # try 1e-3
+train.samples_per_prompt = 8
+train.num_minibatches = 2
+train.lr = 1e-5          # Tinker's math RL recipe</code></pre>
+        </div>
+        <div class="block">
+          <h3>观察</h3>
+          <ul class="watch">
+            <li><span class="dir up">&uarr;</span><span><code>reward</code>、<code>eval/reward</code>、各类型的奖励。</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>entropy</code>：快速塌缩到 0 说明策略停止了探索。</span></li>
+            <li><span class="dir flat">&gt;0</span><span><code>clip_frac</code>：两个 minibatch 时较小但不为零。</span></li>
+            <li><span class="dir flat">&ndash;</span><span><code>ref_kl</code>（开启时）：与本阶段起点策略之间的 KL。使用新的 LoRA adapter 时，参考模型不占额外开销：它就是关掉 adapter 的同一个模型。</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cmd"><div class="cmd-row"><pre><code>python -m opd.main --config=opd/configs/stage5_grpo.py:mps \
+    --config.model.init_checkpoint=runs/stage4/final --workdir=runs/stage5</code></pre><button class="copy" type="button">复制</button></div></div>
+      <div class="block">
+        <h3>实验</h3>
+        <ul class="clean">
+          <li>从原始 Qwen3-1.7B 而不是阶段 4 开始：蒸馏为你省下了多少 RL 步数？</li>
+          <li><code>--config.loss.ref_kl_coef=1e-3</code>，比较熵和奖励。</li>
+          <li>学习率扫描：1e-5、3e-5、1e-4。RL 对学习率远比蒸馏敏感。</li>
+        </ul>
+      </div>
+      <label class="done-toggle"><input type="checkbox" data-done="5"> 我跑完了阶段 5，并读了失败的 episode</label>
+    </section>
+
+    <section id="scale">
+      <p class="eyebrow">走出单机</p>
+      <h2>先扩展规模，再在此基础上构建</h2>
+      <div class="prose">
+        <p><code>opd/trainer.py</code> 是为阅读而写的。要超越单个设备，<code>opd/trl_train.py</code> 会在 TRL 的 <code>GRPOTrainer</code> 上运行每个阶段配置，从而获得 vLLM 生成和多 GPU 训练。环境无需任何改动：它们已经遵循 TRL 的 <code>environment_factory</code> 约定（<code>reset(**task)</code>；其他每个公开方法都是一个工具）。</p>
+        <p>TRL 没有教师，所以 <code>OPDTrainer</code> 加了一个。它让 <code>GRPOTrainer</code> 照常采样并评分一批数据，向教师查询每个采样 token 的对数概率，然后把与 <code>losses.py</code> 相同的逐 token 优势交给 GRPO 的损失：<code>reward_coef&nbsp;&times;&nbsp;A_task&nbsp;&minus;&nbsp;teacher_coef&nbsp;&times;&nbsp;(log&nbsp;p&nbsp;&minus;&nbsp;log&nbsp;q)</code>。其余部分（截断代理目标、把工具结果从损失中 mask 掉、多轮工具循环）都是 TRL 自己的代码。</p>
+      </div>
+      <div class="cmd">
+        <div class="cmd-row"><pre><code>uv pip install -e "trl[vllm]" --config-settings editable_mode=compat  # Linux + CUDA
+python -m opd.trl_train --config=opd/configs/stage1_distill.py:a100 --use_vllm --workdir=runs/trl/stage1
+accelerate launch -m opd.trl_train --config=opd/configs/stage1_distill.py:a100 --use_vllm --workdir=runs/trl/stage1
+BACKEND=trl EXTRA=--use_vllm scripts/run_stages.sh a100   # 五个阶段依次串联</code></pre><button class="copy" type="button">复制</button></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>本仓库</th><th>TRL GRPOConfig</th></tr></thead>
+          <tbody>
+            <tr><td><code>loss.teacher_coef</code> / <code>reward_coef</code></td><td><code>OPDConfig.teacher_coef</code> / <code>reward_coef</code>（由 <code>opd/trl_train.py</code> 添加）；仅支持 <code>"sampled"</code> 教师估计量</td></tr>
+            <tr><td><code>train.samples_per_prompt</code></td><td><code>num_generations</code></td></tr>
+            <tr><td><code>train.num_minibatches</code></td><td>每个生成批次的优化器步数（<code>steps_per_generation</code>）</td></tr>
+            <tr><td><code>loss.clip_low</code> / <code>clip_high</code></td><td><code>epsilon</code> / <code>epsilon_high</code></td></tr>
+            <tr><td><code>loss.ref_kl_coef</code></td><td>近似对应 <code>beta</code>：TRL 把 k3 加到损失上，其梯度对应正向 KL(ref&nbsp;&#8741;&nbsp;&pi;)；本仓库把反向 KL 放进优势</td></tr>
+            <tr><td>按 token 平均的损失</td><td><code>loss_type="dapo"</code></td></tr>
+            <tr><td><code>loss.normalize_std</code></td><td><code>scale_rewards="group"</code> 或 <code>"none"</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="block">
+        <h3>添加你自己的环境</h3>
+        <pre><code># opd/envs/weather.py
+from opd.envs import base
+
+class WeatherEnv(base.Env):
+
+  def reset(self, **task) -> None:
+    super().reset(**task)
+    self._city_temps = task["city_temps"]
+
+  def get_temperature(self, city: str) -> str:
+    """Returns today's temperature in a city.
+
+    Args:
+      city: City name, for example "Oslo".
+
+    Returns:
+      The temperature in Celsius, or an error message.
+    """
+    return str(self._city_temps[city])
+
+
+def sample_task(rng, split) -&gt; base.Task:
+  ...  # {"question": ..., "answer": ..., "kind": "weather", "city_temps": {...}}
+
+SPEC = base.EnvSpec(WeatherEnv, sample_task)
+# 然后在 opd/envs/registry.py 中加入 "weather": weather.SPEC，并设置 --config.env=weather。</code></pre>
+        <p class="muted" style="font-size: 0.88rem">docstring 就是工具面向模型的 API 文档：transformers 会把类型注解和 Google 风格的 <code>Args:</code> 部分转换成系统提示词中的 JSON schema。</p>
+      </div>
+    </section>
+
+    <section id="notes">
+      <p class="eyebrow">构建过程中踩过的坑</p>
+      <h2>实战笔记</h2>
+      <div class="notes">
+        <div class="note">
+          <h3>悄无声息的 top-k 采样</h3>
+          <p>transformers 5.x 在你只传 <code>do_sample=True</code> 时会应用 <code>top_k=50</code>，而 Qwen3 检查点自带的生成配置是 temperature 0.6、top-k 20、top-p 0.95。截断后的样本并不来自你用来训练对数概率的那个策略。在一个很小的随机模型上实测：400 个单 token 样本在默认设置下恰好只有 50 个不同 token，用了 <code>rollout.generate</code> 中的覆盖之后超过 100 个。</p>
+        </div>
+        <div class="note">
+          <h3>重新渲染会改写历史</h3>
+          <p>Qwen3 的对话模板会从过去的 assistant 轮次中删掉空的 <code>&lt;think&gt;&lt;/think&gt;</code> 块。如果从消息重建多轮 episode，得到的 token 会和学生实际采样的不同。所以 rollout 改为以 token 形式追加工具结果；<code>chat_test.py</code> 展示了两种行为。</p>
+        </div>
+        <div class="note">
+          <h3>bf16 会吞掉小的更新</h3>
+          <p>bf16 只有 8 位尾数，比权重小约 1/256 的更新会被舍入掉。因此全参数微调在 bf16 autocast 下保留 fp32 主权重；LoRA 则冻结 bf16 底座，adapter 保持 fp32。</p>
+        </div>
+        <div class="note">
+          <h3>词表才是显存大户</h3>
+          <p>在 Qwen3 的 151,936 词表上，一行 1,024 token 的 float32 logits 就是 622 MB。代码一次只计算一行的对数概率，并用 <code>logits_to_keep</code> 跳过共享提示词内的位置。</p>
+        </div>
+        <div class="note">
+          <h3>无偏不等于有用</h3>
+          <p>在一对很小的玩具模型上，精确 KL 估计量在 30 步内把 KL 从 3.9 降到 2.3 nats，而单样本估计量在每步 64 token 时几乎不动，512 token 时从 3.9 降到 3.1。期望梯度相同，方差却天差地别。真实的 Qwen3 模型对起点比玩具模型近得多，方差也就更低。</p>
+        </div>
+        <div class="note">
+          <h3>结果一致的组什么也学不到</h3>
+          <p>在二值奖励下，学生总能做对（或总做不对）的提示词，组优势为零。题目太简单或太难，RL 都会停滞。<code>reward</code> 曲线平坦时，第一个要看的指标就是 <code>zero_advantage_groups</code>。</p>
+        </div>
+        <div class="note">
+          <h3>同一家族不等于同一词表</h3>
+          <p>token 级蒸馏比较的是相同 token id 的对数概率，所以 trainer 会拒绝不匹配的分词器。即使在同一家族内，不同检查点的输出层也可能填充得不一样（Qwen2.5-7B：152,064 行；Qwen2.5-0.5B：151,936 行），精确 KL 路径通过比较共享前缀来处理这一点。</p>
+        </div>
+        <div class="note">
+          <h3>KL 惩罚放在哪里很重要</h3>
+          <p>GRPO 把 Schulman 的 k3 估计 KL(&pi;&nbsp;&#8741;&nbsp;ref) 加到损失上。它的值是对的，但对 log &pi; 求导后，期望梯度对应的是 KL(ref&nbsp;&#8741;&nbsp;&pi;)，即覆盖质量（mass-covering）的方向。本仓库则像教师项那样把惩罚放进优势。<code>losses_test.py</code> 通过精确枚举验证了这两点。</p>
+        </div>
+        <div class="note">
+          <h3>截断即零奖励</h3>
+          <p>轮数或 token 用尽的 episode 记 0 分，即使未完成的文本中已经出现了草稿 <code>\boxed{}</code>。如果 <code>truncated</code> 在上升，学生是因为太长而受罚，而不是因为答错。先提高预算，再去怪方法。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="refs">
+      <p class="eyebrow">来源</p>
+      <h2>参考文献</h2>
+      <ol class="refs">
+        <li>Thinking Machines Lab，<a href="https://thinkingmachines.ai/blog/on-policy-distillation/">On-Policy Distillation</a>（2025），以及本仓库优势计算所参照的 <a href="https://github.com/thinking-machines-lab/tinker-cookbook/tree/main/tinker_cookbook/distillation">Tinker cookbook 实现</a>。</li>
+        <li>Agarwal 等，<a href="https://huggingface.co/papers/2306.13649">On-Policy Distillation of Language Models: Learning from Self-Generated Mistakes</a>（GKD，2023）。</li>
+        <li>Qwen 团队，<a href="https://arxiv.org/abs/2505.09388">Qwen3 Technical Report</a>（2025）：强到弱蒸馏，先离线策略后在线策略。</li>
+        <li>Shao 等，<a href="https://huggingface.co/papers/2402.03300">DeepSeekMath</a>（2024）：GRPO。</li>
+        <li>Yu 等，<a href="https://huggingface.co/papers/2503.14476">DAPO</a>（2025）：clip-higher、token 级损失。</li>
+        <li>Liu 等，<a href="https://huggingface.co/papers/2503.20783">Understanding R1-Zero-Like Training</a>（Dr. GRPO，2025）。</li>
+        <li>Schulman 等，<a href="https://arxiv.org/abs/1707.06347">Proximal Policy Optimization</a>（2017），以及 Schulman，<a href="http://joschu.net/blog/kl-approx.html">Approximating KL Divergence</a>（k3）。</li>
+        <li>Thinking Machines Lab，<a href="https://thinkingmachines.ai/blog/lora/">LoRA Without Regret</a>（2025）。</li>
+        <li>Hugging Face TRL，<a href="https://huggingface.co/docs/trl/grpo_trainer">GRPO Trainer: agent training</a> 和 <a href="https://huggingface.co/docs/trl/distillation_trainer">Distillation Trainer</a>。</li>
+      </ol>
+      <footer>进度勾选仅保存在当前浏览器中。</footer>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  // ----- Token tape -------------------------------------------------------
+  // k: p = prompt, s = student action, e = environment. lp / lq: log-probs
+  // under the student p and teacher q (illustrative).
+  const P = (t) => ({ t, k: "p" });
+  const E = (t) => ({ t, k: "e" });
+  const S = (t, lp, lq) => ({ t, k: "s", lp, lq });
+
+  const gsm8k = [
+    P("… Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether … assistant\\n"),
+    S("In", -0.4, -0.5), S(" May", -0.3, -0.2), S(" she", -0.2, -0.2), S(" sold", -0.1, -0.1),
+    S(" 48", -0.3, -0.2), S(" *", -0.9, -6.2), S(" 2", -0.1, -0.3), S(" =", -0.05, -0.05),
+    S(" 96", -0.1, -0.2), S(" clips", -0.6, -0.4), S(".", -0.1, -0.1), S(" Altogether", -1.2, -0.9),
+    S(" 48", -0.1, -0.1), S(" +", -0.1, -0.1), S(" 96", -0.1, -0.4), S(" =", -0.05, -0.05),
+    S(" \\boxed{144}", -0.2, -0.9), S("<|im_end|>", -0.1, -0.1),
+  ];
+  const calculator = [
+    P("… # Tools … calculator … user\\nCompute 48213 * 9127 - 3311. … assistant\\n"),
+    S("<tool_call>", -0.7, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.05),
+    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\":", -0.1, -0.1), S(" \"48213 * 9127 - 3311\"}}", -0.4, -0.3),
+    S("</tool_call>", -0.05, -0.05), S("<|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\n440036740\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("The", -0.9, -0.6), S(" result", -0.5, -0.5), S(" is", -0.2, -0.2), S(" \\boxed{440036740}", -0.1, -0.1), S("<|im_end|>", -0.05, -0.05),
+  ];
+  const multiTool = [
+    P("… # Tools … calculator, json_query, query_sql … user\\nEvery employee in the Sales department gets a 5% raise. What will the department's total annual salary be after the raise? … assistant\\n"),
+    S("<tool_call>", -0.3, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"json_query\",", -0.4, -4.8),
+    S(" \"arguments\":", -0.05, -0.1), S(" {\"expression\": \"employees[?department=='Sales']\"}}", -0.6, -1.9),
+    S("</tool_call><|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\nnull\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("<tool_call>", -0.2, -0.1), S("{\"name\":", -0.05, -0.05), S(" \"query_sql\",", -0.3, -0.1),
+    S(" \"arguments\":", -0.05, -0.05), S(" {\"sql\": \"SELECT SUM(salary) FROM employees WHERE department = 'Sales'\"}}", -0.7, -0.5),
+    S("</tool_call><|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\nSUM(salary)\\n512750\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("<tool_call>", -0.4, -0.2), S("{\"name\":", -0.05, -0.05), S(" \"calculator\",", -0.2, -0.1),
+    S(" \"arguments\":", -0.05, -0.05), S(" {\"expression\": \"512750 * 1.05\"}}", -0.5, -0.4),
+    S("</tool_call><|im_end|>", -0.05, -0.05),
+    E("\\n<|im_start|>user\\n<tool_response>\\n538387.5\\n</tool_response><|im_end|>\\n<|im_start|>assistant\\n"),
+    S("The", -0.6, -0.5), S(" new", -0.4, -0.3), S(" total", -0.3, -0.3), S(" is", -0.1, -0.1),
+    S(" \\boxed{538388}", -0.5, -0.3), S("<|im_end|>", -0.05, -0.05),
+  ];
+
+  // Group of 4 with rewards [1, 1, 0, 0]: this correct episode gets
+  // (1 - 0.5) / std([1, 1, 0, 0]) = 0.5 / 0.577 = +0.87.
+  const STAGES = {
+    1: { tape: gsm8k, kt: 1, kr: 0, adv: 0, note: "教师标出了唯一一个错误的运算符；正确的 token 几乎得不到信号" },
+    2: { tape: calculator, kt: 1, kr: 0, adv: 0, note: "工具结果只是上下文：没有柱子，也没有梯度" },
+    3: { tape: multiTool, kt: 1, kr: 0, adv: 0, note: "选错工具只是一个 token，但代价高昂" },
+    4: { tape: multiTool, kt: 1, kr: 1, adv: 0.87, note: "这条 episode 答对了（处处 +0.87），但教师仍然标出了错误的工具" },
+    5: { tape: multiTool, kt: 0, kr: 1, adv: 0.87, note: "稀疏的功劳分配：每个 token，包括错误的工具调用，都得到同样的 +0.87" },
+  };
+
+  const tokensEl = document.getElementById("tokens");
+  const detailEl = document.getElementById("detail");
+  const captionEl = document.getElementById("tape-caption");
+  const kt = document.getElementById("kt");
+  const kr = document.getElementById("kr");
+  const ktOut = document.getElementById("kt-out");
+  const krOut = document.getElementById("kr-out");
+  let stage = 1;
+  let selected = null;
+
+  const fmt = (x) => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(2);
+
+  function advantage(tok) {
+    const s = STAGES[stage];
+    return Number(kt.value) * (tok.lq - tok.lp) + Number(kr.value) * s.adv;
+  }
+
+  function showDetail(tok) {
+    if (!tok) {
+      detailEl.innerHTML = '<span class="wide k">选择一个 token 查看它的数值。</span>';
+      return;
+    }
+    if (tok.k !== "s") {
+      const what = tok.k === "p" ? "提示词：学生以它为条件。" : "工具结果：由环境写出，所以 action_mask = 0。两个模型都读它，但都不在它上面训练。";
+      detailEl.innerHTML = `<span class="wide">${escapeHtml(tok.t)}</span><span class="wide k">${what}</span>`;
+      return;
+    }
+    const s = STAGES[stage];
+    const teacherTerm = Number(kt.value) * (tok.lq - tok.lp);
+    const taskTerm = Number(kr.value) * s.adv;
+    detailEl.innerHTML = `
+      <span class="wide">${escapeHtml(tok.t)}</span>
+      <span><span class="k">log p（学生）</span> ${tok.lp.toFixed(2)}</span>
+      <span><span class="k">log q（教师）</span> ${tok.lq.toFixed(2)}</span>
+      <span><span class="k">教师项</span> ${fmt(teacherTerm)}</span>
+      <span><span class="k">任务项</span> ${fmt(taskTerm)}</span>
+      <span><span class="k">优势 A<sub>t</sub></span> <b>${fmt(teacherTerm + taskTerm)}</b></span>`;
+  }
+
+  function escapeHtml(text) {
+    return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  function render() {
+    const s = STAGES[stage];
+    tokensEl.innerHTML = "";
+    captionEl.textContent = `阶段 ${stage}：${s.note}。`;
+    s.tape.forEach((tok, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tok " + tok.k + (selected === i ? " sel" : "");
+      const txt = document.createElement("span");
+      txt.className = "txt";
+      txt.textContent = tok.t.length > 70 ? tok.t.slice(0, 68) + "…" : tok.t;
+      const bar = document.createElement("span");
+      bar.className = "bar";
+      if (tok.k === "s") {
+        const a = advantage(tok);
+        const h = Math.min(Math.abs(a), 5) / 5 * 50;
+        const fill = document.createElement("i");
+        fill.className = a >= 0 ? "pos" : "neg";
+        fill.style.height = h + "%";
+        bar.appendChild(fill);
+        btn.setAttribute("aria-label", `${tok.t}：优势 ${fmt(a)}`);
+      } else {
+        btn.setAttribute("aria-label", (tok.k === "p" ? "提示词" : "工具结果") + "：" + tok.t);
+      }
+      btn.append(txt, bar);
+      const pick = () => { selected = i; showDetail(tok); tokensEl.querySelectorAll(".tok").forEach((el, j) => el.classList.toggle("sel", j === i)); };
+      btn.addEventListener("mouseenter", pick);
+      btn.addEventListener("focus", pick);
+      btn.addEventListener("click", pick);
+      tokensEl.appendChild(btn);
+    });
+    const current = selected !== null ? s.tape[selected] : s.tape.find((t) => t.k === "s" && Math.abs(t.lq - t.lp) > 3) || null;
+    if (selected === null && current) selected = s.tape.indexOf(current);
+    tokensEl.querySelectorAll(".tok").forEach((el, j) => el.classList.toggle("sel", j === selected));
+    showDetail(current);
+  }
+
+  function setStage(n) {
+    stage = n;
+    selected = null;
+    const s = STAGES[n];
+    kt.value = s.kt;
+    kr.value = s.kr;
+    ktOut.textContent = Number(kt.value).toFixed(1);
+    krOut.textContent = Number(kr.value).toFixed(1);
+    document.querySelectorAll(".stage-pick button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.stage) === n)));
+    render();
+  }
+
+  document.querySelectorAll(".stage-pick button").forEach((b) => b.addEventListener("click", () => setStage(Number(b.dataset.stage))));
+  [kt, kr].forEach((input) => input.addEventListener("input", () => {
+    ktOut.textContent = Number(kt.value).toFixed(1);
+    krOut.textContent = Number(kr.value).toFixed(1);
+    render();
+  }));
+  setStage(1);
+
+  // ----- Memory budget ----------------------------------------------------
+  // Weights and optimizer state in GB; "room" is what is left for
+  // activations, logits and KV caches under the device limit.
+  const MEM = [
+    { label: "Mac，阶段 1–4", total: 48, limit: 36, parts: [["t", 16.4, "教师 16.4"], ["st", 3.4, "学生 3.4"], ["opt", 0.6, ""]] },
+    { label: "Mac，阶段 5", total: 48, limit: 36, parts: [["st", 3.4, "学生 3.4"], ["opt", 0.6, ""]] },
+    { label: "A100，LoRA", total: 80, limit: 80, parts: [["t", 16.4, "教师 16.4"], ["st", 3.4, "3.4"], ["opt", 0.6, ""]] },
+    { label: "A100，全参数微调", total: 80, limit: 80, parts: [["t", 16.4, "教师 16.4"], ["opt", 27.2, "fp32 学生 + 梯度 + Adam 27.2"]] },
+  ];
+  const memEl = document.getElementById("mem");
+  MEM.forEach((row) => {
+    const r = document.createElement("div");
+    r.className = "mem-row";
+    const label = document.createElement("span");
+    label.textContent = `${row.label} (${row.total} GB)`;
+    const track = document.createElement("div");
+    track.className = "mem-track";
+    const used = row.parts.reduce((sum, part) => sum + part[1], 0);
+    const room = Math.round((row.limit - used) * 10) / 10;
+    row.parts.concat([["room", room, `余量 ${room}`]]).forEach(([cls, gb, text]) => {
+      const seg = document.createElement("span");
+      seg.className = cls;
+      seg.style.width = (gb / row.total * 100) + "%";
+      seg.textContent = text;
+      seg.title = text || `${gb} GB`;
+      track.appendChild(seg);
+    });
+    if (row.limit < row.total) {
+      const cap = document.createElement("i");
+      cap.className = "cap";
+      cap.style.left = (row.limit / row.total * 100) + "%";
+      cap.title = "macOS 默认 GPU 上限，约为内存的 75%";
+      track.appendChild(cap);
+    }
+    r.append(label, track);
+    memEl.appendChild(r);
+  });
+
+  // ----- Copy buttons -----------------------------------------------------
+  document.querySelectorAll(".copy").forEach((btn) => btn.addEventListener("click", () => {
+    const code = btn.parentElement.querySelector("code");
+    const text = code.textContent;
+    const done = () => { btn.textContent = "已复制"; setTimeout(() => (btn.textContent = "复制"), 1400); };
+    const fallback = () => {
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.textContent = "已选中";
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+  }));
+
+  // ----- Progress (this browser only) -------------------------------------
+  const KEY = "opd-guide-progress";
+  let progress = {};
+  try { progress = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { progress = {}; }
+  function paintProgress() {
+    document.querySelectorAll("nav.rail a[data-stage]").forEach((a) => a.classList.toggle("done", Boolean(progress[a.dataset.stage])));
+  }
+  document.querySelectorAll("input[data-done]").forEach((box) => {
+    box.checked = Boolean(progress[box.dataset.done]);
+    box.addEventListener("change", () => {
+      progress[box.dataset.done] = box.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(progress)); } catch (e) { /* storage unavailable */ }
+      paintProgress();
+    });
+  });
+  paintProgress();
+
+  // ----- Active section in the rail ---------------------------------------
+  const links = Array.from(document.querySelectorAll("nav.rail a"));
+  const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          links.forEach((a) => a.classList.remove("active"));
+          const link = byId.get(entry.target.id);
+          if (link) link.classList.add("active");
+        }
+      });
+    }, { rootMargin: "-30% 0px -60% 0px" });
+    document.querySelectorAll("main section[id]").forEach((s) => observer.observe(s));
+  }
+})();
+</script>
+</body>
+</html>
