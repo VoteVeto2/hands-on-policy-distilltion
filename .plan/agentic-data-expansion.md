@@ -4,6 +4,8 @@
 > 背景：上一轮在 A100 上把 Qwen3-8B 蒸馏到 Qwen3-1.7B，共 5 个阶段，结果见 [`results/trl/a100/README.md`](../results/trl/a100/README.md)。那一轮的数据只有计算器、SQL、JSON 查询；带奖励的阶段几乎没有学习信号。
 > 本文分三步：先看现有数据和真实世界 agent 任务差在哪，再列出可用的数据集和环境，最后给出在本仓库里的落地顺序。
 > 数字都来自论文、数据卡或排行榜，附了链接。标 `[未核实]` 的是调研时没能和原文对上的。
+>
+> **更新（2026-10-20）：已决定整套换到 Qwen3.5**（学生 Qwen3.5-2B，教师 Qwen3.5-9B）。代码已迁移，stage 1–4 正在 A100 上重跑。迁移细节、新的教师 / 学生数字和对本计划的影响见 [§8](#8-换到-qwen35-之后2026-10-20)。§0–§7 写于换代之前，其中 Qwen3 的数字保留作参照，阶段 A–E 里的教师、学生一律换成 Qwen3.5-9B / 2B。
 
 ## 0. 结论速览
 
@@ -33,8 +35,8 @@
    - **SWE / 终端**：Qwen3-8B 在 Terminal-Bench 2.0 上 0.0%，在 SWE-bench Verified 上 0.7%，教师自己都不会。而且每道题要一个 Docker 镜像，Colab 跑不了。
    - **开放网页的 deep research**：要付费搜索 API 和 LLM 评判，题目对 8B 也太难。
 4. **教师决定上限，换教师必须同词表。**
-   - Qwen3.5 / 3.6 / 3.8 的词表是 248,320，Qwen3 是 151,936，所以前者不能直接当 token 级 OPD 的教师。
-   - 同词表、更强的选择有：Qwen3-14B（bf16 29.6 GB，放得下）；Qwen3-30B-A3B-Thinking-2507 或 Qwen3-32B（要 int8 / AWQ 量化）。
+   - Qwen3.5 / 3.6 / 3.8 的词表是 248,320，Qwen3 是 151,936，所以前者不能直接当 Qwen3 学生的教师。
+   - ~~同词表、更强的选择有：Qwen3-14B；Qwen3-30B-A3B-Thinking-2507 或 Qwen3-32B（要量化）。~~ 已改为整套换到 Qwen3.5（§8）。Qwen3.5-27B、35B-A3B 和 Qwen3.6 的 tokenizer 与 Qwen3.5-2B 完全相同，以后换更强的教师不用再动学生。
 5. **扩数据要和修 GRPO 无信号一起做：**
    - 选难度可调、能给部分得分的任务；
    - 按当前学生的通过率筛题，只留 0 < 通过率 < 1 的；
@@ -102,7 +104,7 @@
 | Qwen3-14B | 29.6 GB | ✓ | τ² retail 48.0 |
 | Qwen3-30B-A3B-Thinking-2507 | 61.1 GB | 只能 int8（约 30.5 GB） | τ² airline 58.0；只有思考模式，学生也得跟着思考 |
 | Qwen3-32B | 65.6 GB | 只能 int8 / AWQ | BFCL v4 总分 48.7，多轮 47.9 |
-| Qwen3.5 / 3.6 / 3.8 | — | ✗ 词表 248,320，不兼容 | 只能整套换代：学生换成 Qwen3.5-2B，教师换成 Qwen3.5-9B |
+| Qwen3.5 / 3.6 / 3.8 | — | ✗ 词表 248,320，不兼容 | 只能整套换代：学生换成 Qwen3.5-2B，教师换成 Qwen3.5-9B（**已采用，见 §8**） |
 
 - **A100 用 FP8 省不了显存。** A100 没有 FP8 硬件，transformers 加载 FP8 权重时会还原成 bf16。进程内的教师要用 int8 或 AWQ。
 - **另一条路：先用 RL 把教师在目标环境上训强，再拿它蒸馏。** ATOD 的教师就是用 GRPO 训过的 Qwen3-4B。代价是要多一轮训练的算力。
@@ -187,7 +189,7 @@
 | [ToolACE](https://huggingface.co/datasets/Team-ACE/ToolACE) | 11.3K 段对话，2.65 万个合成 API | 并行、依赖、嵌套参数 | Apache-2.0 |
 | [Nemotron-RL-Agentic-Function-Calling-Pivot-v1](https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Function-Calling-Pivot-v1)（2026-03） | 838 个领域 | 把专家轨迹的每一步拆成一道题，题里带着之前的工具返回；附通过率字段 | CC-BY-4.0 |
 
-- **接入方式：** TRL 的工具集按环境类固定，而这些数据每行的工具都不同。做法是把每行的 schema 按 Qwen3 的模板手动渲染进 system prompt，不执行工具，由奖励函数解析 `<tool_call>` 里的 JSON 来打分。
+- **接入方式：** TRL 的工具集按环境类固定，而这些数据每行的工具都不同。做法是把每行的 schema 按 Qwen3.5 的模板手动渲染进 system prompt，不执行工具，由奖励函数解析 `<tool_call>` 里的调用来打分（Qwen3.5 写的是 `<function=...>` / `<parameter=...>` 的 XML，不是 JSON）。
 - **[PivotRL](https://arxiv.org/abs/2603.21383) 的发现：** 随机抽的轮次里约 71% 没有学习信号。只在奖励有方差的轮次上训练，Qwen3-30B-A3B 的 τ² 从 58.4 提到 63.8。这和我们 GRPO 没信号是同一个问题。
 
 ### 3.3 检索 / 深度研究
@@ -347,7 +349,7 @@ stage 4/5 为什么没有 GRPO 信号：
 ### 阶段 A：摸底（不训练，约 1 小时）
 
 **做法：**
-- 每个候选环境抽 100–200 道题。教师 Qwen3-8B 和当前学生（stage 4 的 `final/`）各采样 8 次。
+- 每个候选环境抽 100–200 道题。教师 Qwen3.5-9B 和当前学生（Qwen3.5 重跑后 stage 4 的 `final/`）各采样 8 次，都用非思考模式（模型卡上的分数是思考模式，见 §8）。
 - 记录四项：
   - 教师的 pass@1；
   - 学生的 pass@1；
@@ -412,7 +414,7 @@ stage 4/5 为什么没有 GRPO 信号：
 - 训练用 `full` 集去掉 40 道测试题后剩下的 2,245 题，跑 solo 模式，不需要用户模拟器。
 - 评测用那 40 道测试题，外加 airline / retail 作为外部评测。
 
-**注意：** Qwen3-8B 在 telecom 上只有 23.5。阶段 A 要特别确认教师在 solo 模式下的通过率；不够的话，换 EnvScaler-Qwen3-8B 或 Qwen3-14B 当教师。
+**注意：** Qwen3-8B 在 telecom 上只有 23.5；Qwen3.5-9B 的 TAU2 总分是 79.1，但那是思考模式。阶段 A 要特别确认教师在非思考、solo 模式下的通过率；不够的话，换 Qwen3.5-27B（int8）当教师。
 
 **算力：** 约 2–3 小时。
 
@@ -445,7 +447,7 @@ stage 4/5 为什么没有 GRPO 信号：
   - 加入干扰工具；
   - 注入超时、空结果等故障；
   - 加入需要追问的题。
-- **换更强的教师：** Qwen3-14B 或量化后的 32B，或者整套换代到 Qwen3.5。
+- **换更强的教师：** Qwen3.5-27B / 35B-A3B 或 Qwen3.6-35B-A3B，tokenizer 与学生相同，在 A100 上要 int8（§8）。
 
 ## 7. 风险与需要你决定的事
 
@@ -455,14 +457,82 @@ stage 4/5 为什么没有 GRPO 信号：
 - **环境质量：**
   - EnvScaler 和 AWM 的环境代码、判分器都是 LLM 生成的，会有 bug。AWM 论文报告训练中约 4% 的环境调用出错。
   - 所以要在子进程里运行、人工抽查，并过滤掉教师也做不对的题。
-- **思考模式：** 更强的同词表教师（2507 Thinking 系列）只有思考模式。用它们当教师，学生也得思考，序列更长，训练更慢。
+- **思考模式：** Qwen3.5 模型卡上的 agent 分数都是思考模式，而本仓库一直用非思考模式。换成思考模式做 OPD，序列更长、训练更慢，而且 2B 的模型卡提醒它比别的 Qwen3.5 更容易陷入思考循环。
 - **序列长度：**
   - AWM、τ² 的对话可能有 20–30 轮，比 stage 3 的 6 轮长得多，显存和时间都会上去。
   - 要按阶段 A 测出的 token 数来设 `max_completion_length`。
 - **需要你决定：**
-  1. 教师怎么选：继续只用 Qwen3-8B，还是在阶段 D 之前就换上 14B 或量化后的 32B？
+  1. 教师怎么选：先只用 Qwen3.5-9B，还是在阶段 D 之前就换上 int8 的 Qwen3.5-27B / 35B-A3B？
   2. 是否愿意为 τ² 的用户模拟或代码沙箱付费？
-  3. 是否考虑整套换代到 Qwen3.5（学生 2B、教师 9B）？换代后教师更强，但 stage 1–4 都要重跑。
+  3. ~~是否考虑整套换代到 Qwen3.5（学生 2B、教师 9B）？~~ **已决定（2026-10-20）：换。** 见 §8。
+  4. （新）agent 任务用不用思考模式？阶段 A 先在非思考模式下测；教师在非思考模式下明显不够时再讨论。
+
+## 8. 换到 Qwen3.5 之后（2026-10-20）
+
+### 8.1 核实过的事实
+
+| 项目 | Qwen3.5-2B（学生） | Qwen3.5-9B（教师） |
+|---|---|---|
+| 参数（含视觉塔） | 2.21B | 9.41B |
+| 语言模型部分 | 1.88B，bf16 约 3.8 GB | 8.95B，bf16 约 17.9 GB |
+| 层结构 | 24 层，每 3 层 Gated DeltaNet（线性注意力）配 1 层门控注意力 | 32 层，同样 3 : 1 |
+| 默认模式 | 不思考 | 思考 |
+| 词表 | 248,320 | 248,320 |
+
+- 两者的 `tokenizer.json` 完全相同（sha256 一致），0.8B 也一样，可以做 token 级 OPD。
+- 都是带视觉编码器的模型（`Qwen3_5ForConditionalGeneration`），本仓库只做文本任务：
+  - 教师用 `AutoModelForCausalLM` 只加载语言模型；
+  - TRL 训练学生时加载完整模型，LoRA 跳过视觉塔。
+- **工具调用格式变了。** Qwen3 写 JSON；Qwen3.5 写 XML：`<tool_call>` 里套 `<function=名字>`，参数写成 `<parameter=参数名>值</parameter>`。参数值不带引号，类型只能靠工具的 schema 判断。TRL 已支持这种格式；从零实现的 trainer 换了解析器。
+- 没有 `generation_config.json`；结束一轮的仍是 `<|im_end|>`。
+- 训练时要装 `flash-linear-attention`，给线性注意力层提供 Triton kernel；不装的话 transformers 会退回到正确但很慢的 PyTorch 实现。Mac 上只能用后者。
+
+### 8.2 教师和学生差多少（模型卡，思考模式）
+
+| 基准 | 0.8B | **2B（学生）** | 4B | **9B（教师）** | 27B | 35B-A3B |
+|---|---|---|---|---|---|---|
+| BFCL-V4 | 25.3 | **43.6** | 50.3 | **66.1** | 68.5 | 67.3 |
+| TAU2-Bench | 11.6 | **48.8** | 79.9 | **79.1** | 79.0 | 81.2 |
+
+对照：Qwen3-1.7B 和 Qwen3-8B 的 BFCL v4（FC 模式）总分是 28.4 和 42.6。
+
+对本计划的影响：
+1. **能教的东西更多了。** 9B 比 2B 在 BFCL-V4 上高 22.5 分，在 TAU2 上高 30 分；原来 8B 比 1.7B 的 BFCL 总分只高 14 分。
+2. **这些都是思考模式的分数，本仓库用的是非思考模式。** 非思考模式序列短，也是 2B 的默认。9B 在非思考模式下的 agent 分数没有公开，阶段 A 必须先测。
+3. **4B 的 TAU2 和 9B 一样高（79.9 对 79.1）。** τ² 上教师未必越大越好；以后可以试 4B 当教师，显存更省。
+4. **SWE / 终端仍然暂缓。** 9B 的模型卡没有 Terminal-Bench、SWE-bench 的分数。27B 有（TB2 41.6、SWE-V 72.4），教师能力够了，但在 A100 上要 int8，而且每道题要一个 Docker 镜像，Colab 跑不了。
+5. **§3 引用的小模型证据（EnvScaler、SAGE-OPD、ATOD）都是在 Qwen3 上做的。** 环境照用，数字只能作间接参照。
+
+### 8.3 以后可换的更强教师（同一个 tokenizer）
+
+| 教师 | 参数 | bf16 | A100-80GB 上（和学生、vLLM 同卡） | 已知分数（思考模式） |
+|---|---|---|---|---|
+| Qwen3.5-27B | 27.8B | 约 56 GB | 要 int8（约 28 GB） | BFCL-V4 68.5，TB2 41.6，SWE-V 72.4 |
+| Qwen3.5-35B-A3B（MoE） | 36.0B | 约 72 GB | 要 int8 | BFCL-V4 67.3，TAU2 81.2 |
+| Qwen3.6-35B-A3B（MoE） | 36.0B | 约 72 GB | 要 int8 | TB2 51.5，SWE-V 73.4，MCPMark 37.0 |
+| Qwen3.8-27B | 27.8B | 约 56 GB | 要 int8 | 它的 `tokenizer.json` 和 Qwen3.5 不同（词表大小一样），用前要核对 |
+
+参数量含视觉塔和 MTP 层；前三个的 `tokenizer.json` 与学生完全相同。
+
+### 8.4 代码改动（提交 `f71c46b`）
+
+- `opd/configs/base.py`：学生 `Qwen/Qwen3.5-2B`，教师 `Qwen/Qwen3.5-9B`；`debug` 预设换成 0.8B / 2B。
+- `opd/chat.py`：
+  - 解析 XML 工具调用。
+  - Qwen3.5 的模板不能单独渲染工具消息，所以工具结果的 token 改为：把一段假对话带结果、不带结果各渲染一次，取两者之差。
+- `opd/trl_train.py`：
+  - 从 stage 2 起，用和 TRL 一样的方式加载学生（`create_model_from_path`，带视觉塔的完整模型类）。原来的 `AutoModelForCausalLM` 只加载语言模型，模块名不同，上一阶段的 LoRA 会被**静默丢掉**，vLLM 也认不出参数名。
+  - LoRA 跳过视觉塔。
+  - 把我们自己的 tokenizer 传给 TRL，不让它加载图像处理器。
+- 测试：
+  - 替身模型换成小号 Qwen3.5（带视觉塔），72 个测试全部通过。
+  - 跨阶段测试在旧的加载方式下会失败，能抓住上面那个 bug。
+- 用真实的 Qwen3.5-2B tokenizer 核对过两件事：拼接出的 token 和模板重新渲染整段对话完全一致；TRL 能正确解析 XML 调用。
+
+### 8.5 重跑 stage 1–4
+
+- 在 A100-80GB 上用 TRL 后端重跑，结果放在 `results/trl/a100-qwen3.5/`。Qwen3 那一轮的结果保留在 `results/trl/a100/`。
+- 跑完再做阶段 A 的摸底。
 
 ## 附：调研中引用的关键论文
 
@@ -481,4 +551,5 @@ stage 4/5 为什么没有 GRPO 信号：
   - [ToolRL](https://arxiv.org/abs/2504.13958)
 - **教师能力：**
   - [Qwen3 技术报告](https://arxiv.org/abs/2505.09388)
+  - Qwen3.5 模型卡：[0.8B / 2B](https://huggingface.co/Qwen/Qwen3.5-2B)、[9B](https://huggingface.co/Qwen/Qwen3.5-9B)、[27B / 35B-A3B](https://huggingface.co/Qwen/Qwen3.5-27B)、[Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B)
   - [BFCL v4 排行榜](https://gorilla.cs.berkeley.edu/leaderboard.html)
