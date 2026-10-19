@@ -122,6 +122,34 @@ class TrlTrainTest(parameterized.TestCase):
         advantages[mask], expected[mask], atol=1e-2, rtol=0
     )
 
+  def test_chained_stage_hands_on_the_policy_it_started_from(self):
+    first = self._tiny(stage2_single_tool.get_config("mps"))
+    first.train.lr = 1e-2  # Move the policy visibly.
+    first.eval.every = 0
+    first_dir = self._tempdir()
+    trl_train.train(first, first_dir, use_vllm=False)
+    second = self._tiny(stage3_multi_tool.get_config("mps"))
+    second.model.init_checkpoint = os.path.join(first_dir, "final")
+    second.train.lr = 0.0  # Saves exactly the policy it was handed.
+    second.eval.every = 0
+    second_dir = self._tempdir()
+    trl_train.train(second, second_dir, use_vllm=False)
+
+    def logits(checkpoint):
+      config = self._tiny(stage3_multi_tool.get_config("mps"))
+      config.model.init_checkpoint = checkpoint
+      model = trl_train.load_model(config)
+      if isinstance(model, str):
+        model = transformers.AutoModelForCausalLM.from_pretrained(model)
+      with torch.no_grad():
+        return model(input_ids=torch.tensor([[5, 17, 42, 99, 7]])).logits
+
+    started = logits(os.path.join(first_dir, "final"))
+    self.assertFalse(torch.allclose(logits(""), started))
+    torch.testing.assert_close(
+        logits(os.path.join(second_dir, "final")), started
+    )
+
   @parameterized.named_parameters(
       ("stage1", stage1_distill),
       ("stage2", stage2_single_tool),

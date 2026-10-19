@@ -244,11 +244,28 @@ def build_dataset(
 
 def load_model(
     config: config_dict.ConfigDict,
-) -> str | transformers.PreTrainedModel:
-  """The student, with a previous stage's LoRA adapter merged in if given."""
+) -> str | transformers.PreTrainedModel | peft.PeftModel:
+  """The student, starting from a previous stage's checkpoint if given.
+
+  A previous stage's LoRA adapter is trained further when LoRA is on, as in
+  `models.load_policy`: an adapter must stay relative to the base weights it
+  records, or chaining a third stage would drop the first stage's update. With
+  LoRA off it is merged into float32 weights for full fine-tuning.
+
+  Args:
+    config: The full experiment config.
+
+  Returns:
+    A model path for GRPOTrainer to load, or the loaded model.
+  """
   checkpoint = config.model.init_checkpoint
   if not models.is_adapter(checkpoint):
     return checkpoint or config.model.student
+  if config.model.lora.enabled:
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        models.base_weights(config.model), dtype="auto"
+    )
+    return peft.PeftModel.from_pretrained(model, checkpoint, is_trainable=True)
   # Merge in float32: added to bf16 weights, small LoRA updates round away.
   model = transformers.AutoModelForCausalLM.from_pretrained(
       models.base_weights(config.model), dtype=torch.float32
@@ -351,8 +368,9 @@ def train(config: config_dict.ConfigDict, workdir: str, use_vllm: bool) -> None:
         tokenizer, models.load_tokenizer(config.model.teacher)
     )
     teacher = models.load_frozen(config.model.teacher, args.device)
+  model = load_model(config)
   peft_config = None
-  if config.model.lora.enabled:
+  if config.model.lora.enabled and not isinstance(model, peft.PeftModel):
     peft_config = peft.LoraConfig(
         r=config.model.lora.rank,
         lora_alpha=config.model.lora.alpha,
@@ -365,7 +383,7 @@ def train(config: config_dict.ConfigDict, workdir: str, use_vllm: bool) -> None:
         config, config.eval.num_tasks, "eval", config.eval.seed
     )
   opd_trainer = OPDTrainer(
-      model=load_model(config),
+      model=model,
       reward_funcs=make_reward(chat.stop_token_ids(tokenizer)),
       args=args,
       train_dataset=build_dataset(
