@@ -1,21 +1,11 @@
 % On-policy distillation: principle and two runs. English version.
 % Build: cd .report && tectonic -X compile opd-report-en.tex
-% Figure data: python .report/make_data.py (from the repository root).
+% Design: warmreport.sty. Figure data: python .report/make_data.py (from the
+% repository root).
 \documentclass[11pt,a4paper]{article}
-\usepackage[margin=2.4cm]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[font=small,labelfont=bf]{caption}
-\usepackage{enumitem}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
-\usepackage{xcolor}
-\usepackage{pgfplots}
-\usepgfplotslibrary{groupplots}
-\pgfplotsset{compat=1.18}
-\usepackage[round]{natbib}
-\usepackage{microtype}
-\usepackage[colorlinks,allcolors=blue!50!black]{hyperref}
+\usepackage{warmreport}
+\renewcommand{\wrshorttitle}{On-policy distillation from first principles}
+\hypersetup{pdftitle={On-Policy Distillation from First Principles}}
 
 \newcommand{\pis}{\pi_\theta}
 \newcommand{\pit}{\pi_T}
@@ -31,16 +21,15 @@
 \newcommand{\LblQwenThree}{Qwen3-8B $\to$ Qwen3-1.7B}
 \newcommand{\LblQwenThreeFive}{Qwen3.5-9B $\to$ Qwen3.5-2B}
 
-\title{On-Policy Distillation from First Principles:\\
-Two Small Qwen Models Learn to Use Tools}
-\author{}
-\date{October 2026}
-
 \begin{document}
-\maketitle
 
-\begin{abstract}
-\noindent
+\wrtitle{Technical report · hands-on-policy-distillation}
+  {On-Policy Distillation from First Principles}
+  {Two small Qwen models learn to use tools}
+  {October 2026 · Qwen3-8B $\to$ Qwen3-1.7B and Qwen3.5-9B $\to$ Qwen3.5-2B
+  on one A100-80GB}
+
+\begin{wrabstract}{Abstract}
 We distil Qwen3-8B into Qwen3-1.7B and Qwen3.5-9B into Qwen3.5-2B with the
 same code and hyperparameters on one A100-80GB GPU, in four stages:
 grade-school math, a calculator tool, three tools over multi-turn episodes,
@@ -54,7 +43,23 @@ from 0.65 to 0.90 on calculator tasks, from 0.66 to 0.75 and from 0.75 to
 measurable, because 98.5\% and 89\% of sample groups receive identical
 rewards. The Qwen3.5 run takes 2.5 times the GPU time, because its episodes
 are 2--5 times longer.
-\end{abstract}
+\end{wrabstract}
+
+\begin{tcbraster}[raster columns=4, raster equal height,
+    raster column skip=3mm]
+\begin{stat}{wr-terracotta}{0.47 $\to$ 1.00}
+calculator tasks solved by the Qwen3 student, with no reward
+\end{stat}
+\begin{stat}{wr-ochre}{0.75 $\to$ 0.96}
+three-tool tasks solved by the Qwen3.5 student, with no reward
+\end{stat}
+\begin{stat}{wr-wine}{98.5\%}
+of Qwen3's GRPO groups had identical rewards: no signal
+\end{stat}
+\begin{stat}{wr-sage}{2.5$\times$}
+the GPU time for Qwen3.5, whose episodes are 2--5 times longer
+\end{stat}
+\end{tcbraster}
 
 \section{Introduction}
 
@@ -146,37 +151,67 @@ Define, for the token $y_t$ the student actually sampled,
   \label{eq:k}
 \end{equation}
 By \eqref{eq:gradient}, $k_t\,\nabla_\theta\log\pis(y_t\mid s_t)$ is an
-unbiased one-sample estimate of the gradient of the KL at $s_t$, so we can
-minimize the surrogate loss
+unbiased one-sample estimate of the gradient of the KL at $s_t$. That is the
+whole method:
+
+\begin{keybox}{Core identity}
+Minimizing the reverse KL \eqref{eq:objective} on the student's own samples
+is REINFORCE \citep{williams1992reinforce}: minimize the surrogate loss
 \begin{equation}
   \ell(\theta) = -\frac{1}{N}\sum_{t} A_t\,\log\pis(y_t\mid s_t),
   \qquad A_t = -k_t \ \ \text{(held constant)},
   \label{eq:loss}
 \end{equation}
-where the sum runs over the $N$ student tokens of a batch. This is the
-REINFORCE loss \citep{williams1992reinforce} with the per-token reward
+over the $N$ student tokens of a batch. The reward of token $t$ is
 \begin{equation}
-  r_t = \log\pit(y_t\mid s_t) - \log\pis(y_t\mid s_t),
+  r_t = \log\pit(y_t\mid s_t) - \log\pis(y_t\mid s_t).
   \label{eq:reward}
 \end{equation}
-the teacher's log-probability of what the student wrote plus the student's
-own surprisal (an entropy bonus). Tokens the teacher likes more than the
-student did are pushed up, tokens it likes less are pushed down. Averaged
-over tokens, $k_t$ is also an unbiased estimate of the per-token reverse KL;
-it is the teacher-KL curve in Figure~\ref{fig:curves}.
+\end{keybox}
 
-Two approximations separate \eqref{eq:loss} from the exact gradient of
-\eqref{eq:objective}. First, $\mathcal{L}$ depends on $\theta$ also through
-the states, because every token shapes the states that follow; the exact
-gradient adds the future terms $\sum_{t'>t}k_{t'}$ to $A_t$. Like
-\citet{lu2025onpolicy}, we drop them (a discount factor of zero): each token
-answers only for its own disagreement, which lowers variance, and the next
-batch trains on whatever states the updated student visits. Second, one
+The reward is the teacher's log-probability of what the student wrote plus
+the student's own surprisal (an entropy bonus). Tokens the teacher likes
+more than the student did are pushed up, tokens it likes less are pushed
+down. Averaged over tokens, $k_t$ is also an unbiased estimate of the
+per-token reverse KL; it is the teacher-KL curve in Figure~\ref{fig:curves}.
+
+\begin{algobox}[label=alg:step]{One training step}
+\begin{algorithmic}[1]
+\Require student $\pis$ (LoRA), frozen teacher $\pit$, environment,
+  prompts $x_1,\dots,x_P$
+\For{each prompt $x_p$}
+  \State sample $G$ episodes with $\pis$ (vLLM), running every tool call and
+    appending its result
+  \State $R_{p,i}\gets$ task reward of episode $i$;\quad
+    $\hat A_{p,i}\gets(R_{p,i}-\bar R_p)/\sigma_p$
+    \Comment{0 when $G=1$}
+\EndFor
+\State teacher forward pass over every episode:
+  $k_t\gets\log\pis(y_t\mid s_t)-\log\pit(y_t\mid s_t)$
+\State $A_t\gets c_R\,\hat A_{p,i}-c_T\,k_t$ for every student token $t$ of
+  episode $(p,i)$
+\State one AdamW step on
+  $\ell(\theta)=-\frac{1}{N}\sum_t A_t\log\pis(y_t\mid s_t)$
+  \Comment{$N$ student tokens}
+\end{algorithmic}
+\smallskip
+{\small\color{wr-taupe}Stages differ only in the environment, the group size
+$G$, and $(c_T, c_R)$.}
+\end{algobox}
+
+\begin{notebox}{Two approximations.}
+First, $\mathcal{L}$ depends on $\theta$ also through the states, because
+every token shapes the states that follow; the exact gradient of
+\eqref{eq:objective} adds the future terms $\sum_{t'>t}k_{t'}$ to $A_t$.
+Like \citet{lu2025onpolicy}, we drop them (a discount factor of zero): each
+token answers only for its own disagreement, which lowers variance, and the
+next batch trains on whatever states the updated student visits. Second, one
 sampled token stands in for the sum over the vocabulary in
 \eqref{eq:gradient}. GKD \citep{agarwal2024gkd} computes that sum exactly,
 which needs both models' full next-token distributions at every position
 (248{,}320 numbers per position for Qwen3.5); the sampled estimate needs one
 number from the teacher.
+\end{notebox}
 
 \paragraph{Why a dense signal beats a sparse one.}
 Compare RL from a binary task reward $R\in\{0,1\}$. GRPO samples a group of
@@ -210,37 +245,14 @@ teacher or fix its mistakes, and only through the groups that
 \eqref{eq:signal} leaves informative. Algorithm~\ref{alg:step} is one
 training step of every stage.
 
-\paragraph{Preconditions.}
+\begin{notebox}{Preconditions.}
 $k_t$ compares two models' probabilities of the same token id, so student
 and teacher need the same tokenizer: Qwen3 (151{,}936 tokens) and Qwen3.5
 (248{,}320) cannot be mixed, which is why each family is distilled within
 itself. Prompts and tool results enter $s_t$ but carry no loss. And the
 teacher has to judge states it would never reach on its own, such as those
 after a student's mistake.
-
-\begin{algorithm}[t]
-\caption{One training step. Stages differ only in the environment, the
-group size $G$, and $(c_T, c_R)$.}
-\label{alg:step}
-\begin{algorithmic}[1]
-\Require student $\pis$ (LoRA), frozen teacher $\pit$, environment,
-  prompts $x_1,\dots,x_P$
-\For{each prompt $x_p$}
-  \State sample $G$ episodes with $\pis$ (vLLM), running every tool call and
-    appending its result
-  \State $R_{p,i}\gets$ task reward of episode $i$;\quad
-    $\hat A_{p,i}\gets(R_{p,i}-\bar R_p)/\sigma_p$
-    \Comment{0 when $G=1$}
-\EndFor
-\State teacher forward pass over every episode:
-  $k_t\gets\log\pis(y_t\mid s_t)-\log\pit(y_t\mid s_t)$
-\State $A_t\gets c_R\,\hat A_{p,i}-c_T\,k_t$ for every student token $t$ of
-  episode $(p,i)$
-\State one AdamW step on
-  $\ell(\theta)=-\frac{1}{N}\sum_t A_t\log\pis(y_t\mid s_t)$
-  \Comment{$N$ student tokens}
-\end{algorithmic}
-\end{algorithm}
+\end{notebox}
 
 \section{Training setup}
 \label{sec:setup}
@@ -264,7 +276,7 @@ the loss are TRL's.
 \label{tab:models}
 \begin{tabular}{@{}lll@{}}
 \toprule
- & Qwen3 run & Qwen3.5 run \\
+\headrow & Qwen3 run & Qwen3.5 run \\
 \midrule
 Teacher (frozen, bf16) & Qwen3-8B & Qwen3.5-9B (language model only) \\
 Student & Qwen3-1.7B & Qwen3.5-2B \\
@@ -296,7 +308,7 @@ prompts $\times$ group size $G$.}
 \label{tab:stages}
 \begin{tabular}{@{}lllcrrrcc@{}}
 \toprule
-Stage & Tasks & Tools & Turns & Tokens & Steps & Batch & LR
+\headrow Stage & Tasks & Tools & Turns & Tokens & Steps & Batch & LR
   & $(c_T, c_R)$ \\
 \midrule
 1 & GSM8K & none & 1 & 1{,}024 & 200 & $32\times1$ & $10^{-4}$ & (1, 0) \\
@@ -354,10 +366,9 @@ temperature 1), and wall-clock time including evaluation.}
 \setlength{\tabcolsep}{4.5pt}
 \begin{tabular}{@{}lcccccc@{}}
 \toprule
- & \multicolumn{3}{c}{Qwen3-8B $\to$ Qwen3-1.7B}
+\headrow & \multicolumn{3}{c}{Qwen3-8B $\to$ Qwen3-1.7B}
  & \multicolumn{3}{c}{Qwen3.5-9B $\to$ Qwen3.5-2B} \\
-\cmidrule(lr){2-4}\cmidrule(l){5-7}
-Stage & Teacher KL & Reward & Time & Teacher KL & Reward & Time \\
+\headrow Stage & Teacher KL & Reward & Time & Teacher KL & Reward & Time \\
 \midrule
 1. GSM8K & 0.229 $\to$ 0.136 & 0.809 $\to$ 0.836 & 45 min
   & 0.218 $\to$ 0.168 & 0.656 $\to$ 0.781 & 85 min \\
@@ -409,7 +420,7 @@ itself. Of the answers that finish, 91\% are right at the end of stage~1
 last 50 steps used all four turns re-checking a result with more calculator
 calls.
 
-\paragraph{The task reward adds nothing measurable.}
+\begin{findbox}{The task reward adds nothing measurable.}
 In stage~4 the evaluation reward moves from 0.754 to 0.758 and from 0.945 to
 0.953. A 256-task estimate near 0.95 has a standard error of 0.014, and the
 same Qwen3.5 weights scored 0.957 at the end of stage~3.
@@ -427,6 +438,7 @@ confident student gives GRPO nothing to compare. Stage~5 of the Qwen3 run,
 GRPO alone with $G=8$ and no teacher, confirmed it: after the first batch
 every group had zero variance, the loss and gradient were exactly zero, and
 we stopped the run at about step~20.
+\end{findbox}
 
 \paragraph{Cost.}
 The Qwen3.5 run took 7.1 hours against 2.8 (about 50 Colab compute units
@@ -437,30 +449,36 @@ every tool call (stage~2: 371 against 65 tokens; stage~3: 240 against 113).
 
 \section{Takeaways}
 
-\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=2pt]
-\item \textbf{On-policy distillation is the workhorse.} From prompts alone,
-  with no labels and no reward, a 1.7B or 2B student learns to use tools;
-  each distillation stage took under two hours on one A100, and most of the
-  gain came in its first 50 steps.
-\item \textbf{RL needs tasks at the edge of the student's ability.} GRPO
-  learns only from prompts whose outcome varies across samples, which needs
-  per-prompt success rates away from 0 and 1 and randomness in the student's
-  answers. Distillation removes the randomness, and our tasks are mostly
-  solved. Harder and more varied tasks, larger groups or a higher sampling
-  temperature are the levers.
-\item \textbf{Budgets are per model.} With the same configs, the Qwen3.5
-  student wrote episodes 2--5 times longer: length and turn limits that never
-  bound for Qwen3 cost it accuracy, and its run took 2.5 times the GPU time.
-\item \textbf{The tokenizer decides who can teach.} The teacher must share
-  the student's vocabulary token for token.
-\end{enumerate}
+\begin{tcbraster}[raster columns=2, raster equal height,
+    raster column skip=4mm, raster row skip=4mm]
+\begin{card}{wr-terracotta}{1\enspace Distillation is the workhorse}
+Prompts alone, with no labels and no reward, teach a 1.7B or 2B student to
+use tools: under two hours per stage on one A100, most of the gain in the
+first 50 steps.
+\end{card}
+\begin{card}{wr-ochre}{2\enspace RL needs tasks at the edge of ability}
+GRPO learns only from prompts whose outcome varies across samples.
+Distillation removes the randomness and our tasks are mostly solved; harder
+tasks, larger groups or a higher temperature are the levers.
+\end{card}
+\begin{card}{wr-wine}{3\enspace Budgets are per model}
+Same configs, but Qwen3.5 wrote episodes 2--5 times longer: limits that
+never bound for Qwen3 cost it accuracy, and its run took 2.5 times the GPU
+time.
+\end{card}
+\begin{card}{wr-sage}{4\enspace The tokenizer decides who can teach}
+The teacher must share the student's vocabulary token for token, so each
+family distils within itself.
+\end{card}
+\end{tcbraster}
 
+\Needspace{7\baselineskip}
 \paragraph{Reproduction.}
 Stages 1--4 run with
-\begin{center}
-\texttt{BACKEND=trl EXTRA=-{}-use\_vllm scripts/run\_stages.sh a100 1 4}
-\end{center}
-The trainer is \path{opd/trl_train.py} and the configs are in
+\begin{codebox}
+BACKEND=trl EXTRA=-{}-use\_vllm scripts/run\_stages.sh a100 1 4
+\end{codebox}
+\noindent The trainer is \path{opd/trl_train.py} and the configs are in
 \path{opd/configs/}. Every logged metric, sampled episode and adapter is in
 \path{results/trl/a100/} (Qwen3) and \path{results/trl/a100-qwen3.5/}
 (Qwen3.5).

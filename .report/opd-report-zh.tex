@@ -1,28 +1,14 @@
 % 同策略蒸馏：原理与两次训练。中文版（译自 opd-report-en.tex）。
 % Build: cd .report && tectonic -X compile opd-report-zh.tex
-% 字体用 macOS 自带的宋体、楷体和冬青黑体。
+% 版式：warmreport.sty。中文字体用 macOS 自带的宋体、楷体和冬青黑体。
 \documentclass[11pt,a4paper,fontset=none]{ctexart}
+\usepackage{warmreport}
 \setCJKmainfont{Songti SC}[BoldFont={Songti SC Bold},ItalicFont={Kaiti SC}]
 \setCJKsansfont{Hiragino Sans GB W3}[BoldFont={Hiragino Sans GB W6}]
 \setCJKmonofont{Hiragino Sans GB W3}
-\usepackage[margin=2.4cm]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[font=small,labelfont=bf]{caption}
-\usepackage{enumitem}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
-\usepackage{xcolor}
-\usepackage{pgfplots}
-\usepgfplotslibrary{groupplots}
-\pgfplotsset{compat=1.18}
-\usepackage[round]{natbib}
-\usepackage[colorlinks,allcolors=blue!50!black]{hyperref}
-
-% 与英文版一致：标题左对齐，页眉为空。
-\ctexset{section/format+=\raggedright}
-\pagestyle{plain}
-\floatname{algorithm}{算法}
+\renewcommand{\wrshorttitle}{从第一性原理理解同策略蒸馏}
+\hypersetup{pdftitle={从第一性原理理解同策略蒸馏}}
+\renewcommand{\algoname}{算法}
 \renewcommand{\algorithmicrequire}{\textbf{输入：}}
 
 \newcommand{\pis}{\pi_\theta}
@@ -39,16 +25,15 @@
 \newcommand{\LblQwenThree}{Qwen3-8B $\to$ Qwen3-1.7B}
 \newcommand{\LblQwenThreeFive}{Qwen3.5-9B $\to$ Qwen3.5-2B}
 
-\title{从第一性原理理解同策略蒸馏：\\
-两个小型 Qwen 模型学会使用工具}
-\author{}
-\date{2026 年 10 月}
-
 \begin{document}
-\maketitle
 
-\begin{abstract}
-\noindent
+\wrtitle{技术报告 · hands-on-policy-distillation}
+  {从第一性原理理解同策略蒸馏}
+  {两个小型 Qwen 模型学会使用工具}
+  {2026 年 10 月 · 一块 A100-80GB 上的 Qwen3-8B $\to$ Qwen3-1.7B 与
+  Qwen3.5-9B $\to$ Qwen3.5-2B}
+
+\begin{wrabstract}{摘要}
 我们在一块 A100-80GB GPU 上，用同一套代码和超参数，把 Qwen3-8B 蒸馏进
 Qwen3-1.7B，把 Qwen3.5-9B 蒸馏进 Qwen3.5-2B，共四个阶段：小学数学应用题、
 计算器工具、多轮回合中的三种工具，以及蒸馏加任务奖励。我们从“学生该模仿什么、
@@ -59,7 +44,23 @@ Qwen3-1.7B，把 Qwen3.5-9B 蒸馏进 Qwen3.5-2B，共四个阶段：小学数�
 再通过 GRPO 加入任务奖励，没有带来可测量的变化，因为分别有 98.5\% 和 89\% 的
 采样组得到完全相同的奖励。Qwen3.5 的训练用了 2.5 倍的 GPU 时间，原因是它的
 回合长 2--5 倍。
-\end{abstract}
+\end{wrabstract}
+
+\begin{tcbraster}[raster columns=4, raster equal height,
+    raster column skip=3mm]
+\begin{stat}{wr-terracotta}{0.47 $\to$ 1.00}
+Qwen3 学生的计算器任务解决率，未用奖励
+\end{stat}
+\begin{stat}{wr-ochre}{0.75 $\to$ 0.96}
+Qwen3.5 学生的三工具任务解决率，未用奖励
+\end{stat}
+\begin{stat}{wr-wine}{98.5\%}
+Qwen3 的 GRPO 组奖励完全相同：没有信号
+\end{stat}
+\begin{stat}{wr-sage}{2.5$\times$}
+Qwen3.5 的 GPU 时间，因其回合长 2--5 倍
+\end{stat}
+\end{tcbraster}
 
 \section{引言}
 
@@ -134,30 +135,58 @@ $\sum_a\nabla_\theta p(a)=\nabla_\theta 1=0$，
   \label{eq:k}
 \end{equation}
 由式 \eqref{eq:gradient}，$k_t\,\nabla_\theta\log\pis(y_t\mid s_t)$ 是 $s_t$
-处 KL 梯度的单样本无偏估计，因此可以最小化替代损失
+处 KL 梯度的单样本无偏估计。整个方法就是这一句：
+
+\begin{keybox}{核心等式}
+在学生自己的样本上最小化反向 KL \eqref{eq:objective}，就是 REINFORCE
+\citep{williams1992reinforce}：最小化替代损失
 \begin{equation}
   \ell(\theta) = -\frac{1}{N}\sum_{t} A_t\,\log\pis(y_t\mid s_t),
   \qquad A_t = -k_t \ \ \text{（视为常数）},
   \label{eq:loss}
 \end{equation}
-其中求和遍历一个批次中的 $N$ 个学生 token。这正是 REINFORCE 损失
-\citep{williams1992reinforce}，其每个 token 的奖励为
+求和遍历一个批次中的 $N$ 个学生 token。token $t$ 的奖励为
 \begin{equation}
-  r_t = \log\pit(y_t\mid s_t) - \log\pis(y_t\mid s_t),
+  r_t = \log\pit(y_t\mid s_t) - \log\pis(y_t\mid s_t).
   \label{eq:reward}
 \end{equation}
-即教师对学生所写内容的对数概率，加上学生自己的自信息（surprisal，相当于熵奖励）。
-教师比学生更认可的 token 被推高，不如学生认可的被压低。对 token 取平均后，
-$k_t$ 也是每 token 反向 KL 的无偏估计，即图~\ref{fig:curves} 中的教师 KL 曲线。
+\end{keybox}
 
-式 \eqref{eq:loss} 与式 \eqref{eq:objective} 的精确梯度之间隔着两处近似。
+这个奖励等于教师对学生所写内容的对数概率，加上学生自己的自信息（surprisal，
+相当于熵奖励）。教师比学生更认可的 token 被推高，不如学生认可的被压低。对 token
+取平均后，$k_t$ 也是每 token 反向 KL 的无偏估计，即图~\ref{fig:curves} 中的
+教师 KL 曲线。
+
+\begin{algobox}[label=alg:step]{一个训练步}
+\begin{algorithmic}[1]
+\Require 学生 $\pis$（LoRA）、冻结的教师 $\pit$、环境、提示 $x_1,\dots,x_P$
+\For{每个提示 $x_p$}
+  \State 用 $\pis$（vLLM）采样 $G$ 个回合，执行每个工具调用并追加其结果
+  \State $R_{p,i}\gets$ 回合 $i$ 的任务奖励；\quad
+    $\hat A_{p,i}\gets(R_{p,i}-\bar R_p)/\sigma_p$
+    \Comment{$G=1$ 时为 0}
+\EndFor
+\State 教师对每个回合做一次前向传播：
+  $k_t\gets\log\pis(y_t\mid s_t)-\log\pit(y_t\mid s_t)$
+\State 对回合 $(p,i)$ 的每个学生 token $t$：$A_t\gets c_R\,\hat A_{p,i}-c_T\,k_t$
+\State 对 $\ell(\theta)=-\frac{1}{N}\sum_t A_t\log\pis(y_t\mid s_t)$
+  做一步 AdamW
+  \Comment{$N$ 个学生 token}
+\end{algorithmic}
+\smallskip
+{\small\color{wr-taupe}各阶段只在环境、组大小 $G$ 和 $(c_T, c_R)$ 上不同。}
+\end{algobox}
+
+\begin{notebox}{两处近似}
 第一，$\mathcal{L}$ 还通过状态依赖于 $\theta$：每个 token 都会影响其后的状态，
-精确梯度要在 $A_t$ 上再加上未来项 $\sum_{t'>t}k_{t'}$。我们与
-\citet{lu2025onpolicy} 一样去掉这些项（折扣因子取零）：每个 token 只为自己的
-分歧负责，这降低了方差，而下一批数据会在更新后的学生所访问的状态上继续训练。
-第二，用一个采样 token 代替式 \eqref{eq:gradient} 中对整个词表的求和。GKD
-\citep{agarwal2024gkd} 精确计算这个和，需要两个模型在每个位置上的完整下一
-token 分布（Qwen3.5 每个位置 248{,}320 个数）；采样估计只需要教师给出一个数。
+式 \eqref{eq:objective} 的精确梯度要在 $A_t$ 上再加上未来项
+$\sum_{t'>t}k_{t'}$。我们与 \citet{lu2025onpolicy} 一样去掉这些项（折扣因子
+取零）：每个 token 只为自己的分歧负责，这降低了方差，而下一批数据会在更新后的
+学生所访问的状态上继续训练。第二，用一个采样 token 代替式 \eqref{eq:gradient}
+中对整个词表的求和。GKD \citep{agarwal2024gkd} 精确计算这个和，需要两个模型在
+每个位置上的完整下一 token 分布（Qwen3.5 每个位置 248{,}320 个数）；采样估计
+只需要教师给出一个数。
+\end{notebox}
 
 \paragraph{为什么稠密信号胜过稀疏信号}
 对比用二值任务奖励 $R\in\{0,1\}$ 的强化学习。GRPO 为每个提示采样一组 $G$ 个
@@ -185,31 +214,12 @@ $O(1)$ \citep{lu2025onpolicy}；只要学生与教师有分歧它就不为零，
 或纠正教师的错误，而且只能通过式 \eqref{eq:signal} 留下的那些有信号的组。
 算法~\ref{alg:step} 是每个阶段的一个训练步。
 
-\paragraph{前提条件}
+\begin{notebox}{前提条件}
 $k_t$ 比较的是两个模型对同一个 token id 的概率，所以学生和教师必须使用相同的
 分词器：Qwen3（151{,}936 个 token）与 Qwen3.5（248{,}320 个）不能混用，这就是
 每个系列只在自身内部蒸馏的原因。提示和工具结果进入 $s_t$，但不计入损失。此外，
 教师必须评判它自己永远不会到达的状态，例如学生犯错之后的状态。
-
-\begin{algorithm}[t]
-\caption{一个训练步。各阶段只在环境、组大小 $G$ 和 $(c_T, c_R)$ 上不同。}
-\label{alg:step}
-\begin{algorithmic}[1]
-\Require 学生 $\pis$（LoRA）、冻结的教师 $\pit$、环境、提示 $x_1,\dots,x_P$
-\For{每个提示 $x_p$}
-  \State 用 $\pis$（vLLM）采样 $G$ 个回合，执行每个工具调用并追加其结果
-  \State $R_{p,i}\gets$ 回合 $i$ 的任务奖励；\quad
-    $\hat A_{p,i}\gets(R_{p,i}-\bar R_p)/\sigma_p$
-    \Comment{$G=1$ 时为 0}
-\EndFor
-\State 教师对每个回合做一次前向传播：
-  $k_t\gets\log\pis(y_t\mid s_t)-\log\pit(y_t\mid s_t)$
-\State 对回合 $(p,i)$ 的每个学生 token $t$：$A_t\gets c_R\,\hat A_{p,i}-c_T\,k_t$
-\State 对 $\ell(\theta)=-\frac{1}{N}\sum_t A_t\log\pis(y_t\mid s_t)$
-  做一步 AdamW
-  \Comment{$N$ 个学生 token}
-\end{algorithmic}
-\end{algorithm}
+\end{notebox}
 
 \section{训练设置}
 \label{sec:setup}
@@ -230,7 +240,7 @@ $k_t$ 比较的是两个模型对同一个 token id 的概率，所以学生和�
 \label{tab:models}
 \begin{tabular}{@{}lll@{}}
 \toprule
- & Qwen3 训练 & Qwen3.5 训练 \\
+\headrow & Qwen3 训练 & Qwen3.5 训练 \\
 \midrule
 教师（冻结，bf16） & Qwen3-8B & Qwen3.5-9B（仅语言模型） \\
 学生 & Qwen3-1.7B & Qwen3.5-2B \\
@@ -258,7 +268,7 @@ JMESPath 查询。这些任务需要一种工具（45\%）、组合两种工具�
 \label{tab:stages}
 \begin{tabular}{@{}lllcrrrcc@{}}
 \toprule
-阶段 & 任务 & 工具 & 轮数 & Token 上限 & 步数 & 批次 & 学习率
+\headrow 阶段 & 任务 & 工具 & 轮数 & Token 上限 & 步数 & 批次 & 学习率
   & $(c_T, c_R)$ \\
 \midrule
 1 & GSM8K & 无 & 1 & 1{,}024 & 200 & $32\times1$ & $10^{-4}$ & (1, 0) \\
@@ -284,8 +294,8 @@ JMESPath 查询。这些任务需要一种工具（45\%）、组合两种工具�
 \item 打分：教师对每个回合做一次 bf16 前向传播，经由融合的输出层直接返回采样
   token 的对数概率，不生成完整的 logits。$k_t$ 中学生的对数概率由训练器重新
   计算，而不取自 vLLM。
-\item vLLM 的算子给出的对数概率与训练器略有差异。TRL 给每个回合乘以权重
-  $\exp\sum_t(\log\pis-\log\pi_{\text{vLLM}})$，并丢弃权重超过 3 的回合；
+\item vLLM 的算子给出的对数概率与训练器略有差异，因此 TRL 给每个回合乘以重要性
+  权重 $\exp\sum_t(\log\pis-\log\pi_{\text{vLLM}})$，并丢弃权重超过 3 的回合；
   各阶段的平均权重为 0.95--1.00。
 \item 奖励（阶段 4 的训练与全部评估）：若最终回答中最后一个 \verb|\boxed{}| 与
   参考答案相等（数值误差 $10^{-6}$ 以内）则为 1，否则为 0；若回合用完 token
@@ -308,10 +318,9 @@ JMESPath 查询。这些任务需要一种工具（45\%）、组合两种工具�
 \setlength{\tabcolsep}{4.5pt}
 \begin{tabular}{@{}lcccccc@{}}
 \toprule
- & \multicolumn{3}{c}{Qwen3-8B $\to$ Qwen3-1.7B}
+\headrow & \multicolumn{3}{c}{Qwen3-8B $\to$ Qwen3-1.7B}
  & \multicolumn{3}{c}{Qwen3.5-9B $\to$ Qwen3.5-2B} \\
-\cmidrule(lr){2-4}\cmidrule(l){5-7}
-阶段 & 教师 KL & 奖励 & 耗时 & 教师 KL & 奖励 & 耗时 \\
+\headrow 阶段 & 教师 KL & 奖励 & 耗时 & 教师 KL & 奖励 & 耗时 \\
 \midrule
 1. GSM8K & 0.229 $\to$ 0.136 & 0.809 $\to$ 0.836 & 45 分钟
   & 0.218 $\to$ 0.168 & 0.656 $\to$ 0.781 & 85 分钟 \\
@@ -357,7 +366,7 @@ Qwen3.5 学生在 32 个回合里只调用了 4 次计算器，其余算术都�
 阶段 2 的最后 50 步中，它约 70\% 的失败训练回合用完了全部四轮，都在用更多的
 计算器调用反复核对结果。
 
-\paragraph{任务奖励没有带来可测量的提升}
+\begin{findbox}{任务奖励没有带来可测量的提升}
 阶段 4 的评估奖励从 0.754 变为 0.758，从 0.945 变为 0.953。成功率约 0.95 时，
 256 个任务的估计标准误为 0.014，而同一组 Qwen3.5 权重在阶段 3 结束时得分
 0.957。式 \eqref{eq:signal} 解释了原因：只有 1.5\%（Qwen3）和 10.9\%
@@ -370,6 +379,7 @@ Qwen3.5 学生在 32 个回合里只调用了 4 次计算器，其余算术都�
 学生让 GRPO 无从比较。Qwen3 训练的阶段 5（只用 GRPO，$G=8$，没有教师）证实了
 这一点：第一批之后每个组的方差都为零，损失和梯度恰好为零，我们在大约第 20 步
 停止了训练。
+\end{findbox}
 
 \paragraph{成本}
 Qwen3.5 的训练用了 7.1 小时，Qwen3 用了 2.8 小时（约 50 对 23 个 Colab 计算
@@ -379,26 +389,32 @@ Qwen3.5 的训练用了 7.1 小时，Qwen3 用了 2.8 小时（约 50 对 23 个
 
 \section{要点}
 
-\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=2pt]
-\item \textbf{同策略蒸馏是主力。}只用提示，没有标注也没有奖励，1.7B 或 2B 的
-  学生就能学会使用工具；每个蒸馏阶段在一块 A100 上都不到两小时，大部分提升出现
-  在前 50 步。
-\item \textbf{强化学习需要处在学生能力边缘的任务。}GRPO 只能从各样本结果不一的
-  提示中学习，这要求每个提示的成功率远离 0 和 1，也要求学生的回答有随机性。蒸馏
-  消除了随机性，而我们的任务大多已被解决。更难、更多样的任务，更大的组，或更高
-  的采样温度，才是可用的杠杆。
-\item \textbf{预算要按模型定。}同样的配置下，Qwen3.5 学生写的回合长 2--5 倍：
-  对 Qwen3 从未起作用的长度和轮数上限让它损失了准确率，训练也用了 2.5 倍的
-  GPU 时间。
-\item \textbf{分词器决定谁能当教师。}教师必须与学生逐个 token 共享同一个词表。
-\end{enumerate}
+\begin{tcbraster}[raster columns=2, raster equal height,
+    raster column skip=4mm, raster row skip=4mm]
+\begin{card}{wr-terracotta}{1\enspace 蒸馏是主力}
+只用提示，没有标注也没有奖励，就能教会 1.7B 或 2B 的学生使用工具：每个阶段在
+一块 A100 上不到两小时，大部分提升出现在前 50 步。
+\end{card}
+\begin{card}{wr-ochre}{2\enspace 强化学习需要能力边缘的任务}
+GRPO 只能从各样本结果不一的提示中学习。蒸馏消除了随机性，而我们的任务大多已被
+解决；更难的任务、更大的组或更高的温度，才是可用的杠杆。
+\end{card}
+\begin{card}{wr-wine}{3\enspace 预算要按模型定}
+配置相同，但 Qwen3.5 写的回合长 2--5 倍：对 Qwen3 从未起作用的上限让它损失了
+准确率，训练也用了 2.5 倍的 GPU 时间。
+\end{card}
+\begin{card}{wr-sage}{4\enspace 分词器决定谁能当教师}
+教师必须与学生逐个 token 共享同一个词表，所以每个系列只能在自身内部蒸馏。
+\end{card}
+\end{tcbraster}
 
+\Needspace{7\baselineskip}
 \paragraph{复现}
 阶段 1--4 用以下命令运行：
-\begin{center}
-\texttt{BACKEND=trl EXTRA=-{}-use\_vllm scripts/run\_stages.sh a100 1 4}
-\end{center}
-训练器是 \path{opd/trl_train.py}，配置在 \path{opd/configs/}。所有记录的指标、
+\begin{codebox}
+BACKEND=trl EXTRA=-{}-use\_vllm scripts/run\_stages.sh a100 1 4
+\end{codebox}
+\noindent 训练器是 \path{opd/trl_train.py}，配置在 \path{opd/configs/}。所有记录的指标、
 采样回合和适配器都在 \path{results/trl/a100/}（Qwen3）和
 \path{results/trl/a100-qwen3.5/}（Qwen3.5）中。
 
