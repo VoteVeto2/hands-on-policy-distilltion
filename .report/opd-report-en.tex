@@ -1,0 +1,572 @@
+% On-policy distillation: principle and two runs. English version.
+% Build: cd .report && tectonic -X compile opd-report-en.tex
+% Figure data: python .report/make_data.py (from the repository root).
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+\usepackage{pgfplots}
+\usepgfplotslibrary{groupplots}
+\pgfplotsset{compat=1.18}
+\usepackage[round]{natbib}
+\usepackage{microtype}
+\usepackage[colorlinks,allcolors=blue!50!black]{hyperref}
+
+\newcommand{\pis}{\pi_\theta}
+\newcommand{\pit}{\pi_T}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\E}{\mathbb{E}}
+
+% Figure labels (curves.tex).
+\newcommand{\LblKL}{Teacher KL (nats/token)}
+\newcommand{\LblReward}{Reward (share of tasks solved)}
+\newcommand{\LblLength}{Episode length (tokens)}
+\newcommand{\LblEntropy}{Student entropy (nats/token)}
+\newcommand{\LblStep}{Training step, stages 1--4 back to back}
+\newcommand{\LblQwenThree}{Qwen3-8B $\to$ Qwen3-1.7B}
+\newcommand{\LblQwenThreeFive}{Qwen3.5-9B $\to$ Qwen3.5-2B}
+
+\title{On-Policy Distillation from First Principles:\\
+Two Small Qwen Models Learn to Use Tools}
+\author{}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+We distil Qwen3-8B into Qwen3-1.7B and Qwen3.5-9B into Qwen3.5-2B with the
+same code and hyperparameters on one A100-80GB GPU, in four stages:
+grade-school math, a calculator tool, three tools over multi-turn episodes,
+and distillation plus a task reward. Starting from what the student should
+imitate, and where, we derive on-policy distillation as a policy gradient
+whose per-token reward is the teacher's log-probability of the student's
+token minus the student's own. Teacher KL falls in every distillation stage,
+and task success rises although no reward is used: from 0.47 to 1.00 and
+from 0.65 to 0.90 on calculator tasks, from 0.66 to 0.75 and from 0.75 to
+0.96 on three-tool tasks. Adding the task reward through GRPO changes nothing
+measurable, because 98.5\% and 89\% of sample groups receive identical
+rewards. The Qwen3.5 run takes 2.5 times the GPU time, because its episodes
+are 2--5 times longer.
+\end{abstract}
+
+\section{Introduction}
+
+A small model that calls tools is cheap to serve, but it has to learn when
+to call which tool, how to write the call, and what to do with the result.
+There are three ways to teach it: supervised fine-tuning on episodes that a
+larger teacher wrote (off-policy distillation;
+\citealp{kim2016seqkd}); reinforcement learning from a task
+reward, for example with GRPO \citep{shao2024deepseekmath}; and on-policy
+distillation, in which the student writes the episodes and the teacher
+grades every token \citep{agarwal2024gkd,gu2024minillm,lu2025onpolicy}. The
+small Qwen3 models were themselves post-trained with on-policy distillation
+from larger ones \citep{yang2025qwen3}.
+
+This report explains from first principles why the third works
+(Section~\ref{sec:principle}), how we trained (Section~\ref{sec:setup}), and
+what two runs showed (Section~\ref{sec:results}). Both runs use one pipeline
+(TRL's GRPO trainer with a teacher term added to the advantage) and the same
+configs; only the models differ.
+
+\section{The core idea from first principles}
+\label{sec:principle}
+
+\paragraph{Setting.}
+A language model is a policy over tokens. The state $s_t$ is everything in
+the context before the student's $t$-th token: the prompt (system prompt,
+tool descriptions, task), the student's earlier tokens, and the results of
+the tools it has called. The action is the next token $y_t$. The student
+$\pis$ is trained; the teacher $\pit$ is frozen. Tool results are written by
+the environment, not chosen by the student, so they are part of the state
+and never an action.
+
+We want the student to choose tokens, in every state, the way the teacher
+would. The natural discrepancy between two next-token distributions is a KL
+divergence, which leaves two choices: in which states to measure it, and in
+which direction.
+
+\paragraph{Which states: the student's own.}
+Fine-tuning on teacher-written episodes trains the student on the states
+the teacher visits. At test time the student generates, and visits its own.
+After one token the teacher would not have written, the student is in a
+state that no training example covered, where it is more likely to err
+again: errors compound. In imitation learning with per-step error $\epsilon$
+on the training distribution, the cost over $T$ steps can grow as
+$O(\epsilon T^2)$ \citep{ross2010efficient}; training on states drawn from
+the learner's own policy, labelled by an expert, brings it down to
+$O(\epsilon T)$ \citep[DAgger;][]{ross2011dagger}. On-policy distillation is
+this recipe with the teacher as the expert: the student writes the episodes,
+and the teacher says what it would have done in every state the student
+reached.
+
+\paragraph{Which direction: reverse KL.}
+The objective is the reverse KL, summed over the states of the student's own
+episodes $\tau$:
+\begin{equation}
+  \mathcal{L}(\theta) = \E_{x}\,\E_{\tau\sim\pis}\Big[\sum_{t}
+  \KL\big(\pis(\cdot\mid s_t)\,\big\|\,\pit(\cdot\mid s_t)\big)\Big].
+  \label{eq:objective}
+\end{equation}
+By the chain rule of KL, this expected sum is the KL between the two models'
+distributions over whole episodes; tool results are the same function of the
+history under both models and cancel. Reverse KL suits distillation into a
+small model for three reasons. (i)~It is an expectation under the student,
+so it can be estimated from the student's samples and the teacher's
+log-probabilities of those tokens: one teacher forward pass, no teacher
+generation. (ii)~It is mode seeking: it punishes the student hard for
+putting probability where the teacher puts almost none, and mildly for
+leaving out some of the teacher's options. A student that cannot represent
+everything a larger teacher does commits to one good behaviour instead of
+averaging several \citep{gu2024minillm,lu2025onpolicy}. (iii)~It reaches its
+minimum, zero, only when the student behaves like the teacher in the states
+it visits, so nothing but imitation lowers it. Unlike a learned reward
+model, it cannot be gamed; \citet{lu2025onpolicy} call it unhackable.
+
+\paragraph{The gradient is a policy gradient.}
+Fix a state $s$ and write $p=\pis(\cdot\mid s)$ and $q=\pit(\cdot\mid s)$,
+with $a$ ranging over the vocabulary. Since $p(a)\nabla_\theta\log
+p(a)=\nabla_\theta p(a)$ and $\sum_a\nabla_\theta p(a)=\nabla_\theta 1=0$,
+\begin{align}
+  \nabla_\theta \KL(p\,\|\,q)
+  &= \sum_a \nabla_\theta p(a)\big[\log p(a)-\log q(a)\big]
+    + \sum_a \nabla_\theta p(a) \nonumber\\
+  &= \E_{a\sim p}\Big[\big(\log p(a)-\log q(a)\big)\,\nabla_\theta\log p(a)\Big].
+  \label{eq:gradient}
+\end{align}
+Define, for the token $y_t$ the student actually sampled,
+\begin{equation}
+  k_t = \log\pis(y_t\mid s_t) - \log\pit(y_t\mid s_t).
+  \label{eq:k}
+\end{equation}
+By \eqref{eq:gradient}, $k_t\,\nabla_\theta\log\pis(y_t\mid s_t)$ is an
+unbiased one-sample estimate of the gradient of the KL at $s_t$, so we can
+minimize the surrogate loss
+\begin{equation}
+  \ell(\theta) = -\frac{1}{N}\sum_{t} A_t\,\log\pis(y_t\mid s_t),
+  \qquad A_t = -k_t \ \ \text{(held constant)},
+  \label{eq:loss}
+\end{equation}
+where the sum runs over the $N$ student tokens of a batch. This is the
+REINFORCE loss \citep{williams1992reinforce} with the per-token reward
+\begin{equation}
+  r_t = \log\pit(y_t\mid s_t) - \log\pis(y_t\mid s_t),
+  \label{eq:reward}
+\end{equation}
+the teacher's log-probability of what the student wrote plus the student's
+own surprisal (an entropy bonus). Tokens the teacher likes more than the
+student did are pushed up, tokens it likes less are pushed down. Averaged
+over tokens, $k_t$ is also an unbiased estimate of the per-token reverse KL;
+it is the teacher-KL curve in Figure~\ref{fig:curves}.
+
+Two approximations separate \eqref{eq:loss} from the exact gradient of
+\eqref{eq:objective}. First, $\mathcal{L}$ depends on $\theta$ also through
+the states, because every token shapes the states that follow; the exact
+gradient adds the future terms $\sum_{t'>t}k_{t'}$ to $A_t$. Like
+\citet{lu2025onpolicy}, we drop them (a discount factor of zero): each token
+answers only for its own disagreement, which lowers variance, and the next
+batch trains on whatever states the updated student visits. Second, one
+sampled token stands in for the sum over the vocabulary in
+\eqref{eq:gradient}. GKD \citep{agarwal2024gkd} computes that sum exactly,
+which needs both models' full next-token distributions at every position
+(248{,}320 numbers per position for Qwen3.5); the sampled estimate needs one
+number from the teacher.
+
+\paragraph{Why a dense signal beats a sparse one.}
+Compare RL from a binary task reward $R\in\{0,1\}$. GRPO samples a group of
+$G$ episodes per prompt and gives every token of episode $i$ the same
+advantage $\hat A_i=(R_i-\bar R)/\sigma_R$, normalized within the group. Two
+things follow. An episode's reward carries at most one bit, spread over
+hundreds of tokens: it says that the episode failed, not where. And if all
+$G$ episodes of a prompt get the same reward, every advantage in the group
+is zero. If the student solves a prompt with probability $p$, independently
+across samples, a group carries a signal with probability
+\begin{equation}
+  P_{\text{signal}}(p) = 1 - p^G - (1-p)^G ,
+  \label{eq:signal}
+\end{equation}
+which for $G=4$ is 0.875 at $p=\tfrac12$, 0.17 at $p=0.955$, and vanishes as
+$p$ approaches 0 or 1. The teacher term instead gives one number per token,
+$O(T)$ bits per episode rather than $O(1)$ \citep{lu2025onpolicy}, and it is
+nonzero wherever student and teacher disagree, whether or not the episode
+succeeded. It is also cheap: the teacher scores an episode in one forward
+pass, parallel over positions, and never decodes.
+
+\paragraph{Combining both signals.}
+In general, the advantage of token $t$ of episode $i$ is
+\begin{equation}
+  A_t = c_R\,\hat A_i - c_T\,k_t ,
+  \label{eq:advantage}
+\end{equation}
+with $c_R=0$ for pure distillation. The teacher term can at best make the
+student as good as the teacher; only the task reward can push past the
+teacher or fix its mistakes, and only through the groups that
+\eqref{eq:signal} leaves informative. Algorithm~\ref{alg:step} is one
+training step of every stage.
+
+\paragraph{Preconditions.}
+$k_t$ compares two models' probabilities of the same token id, so student
+and teacher need the same tokenizer: Qwen3 (151{,}936 tokens) and Qwen3.5
+(248{,}320) cannot be mixed, which is why each family is distilled within
+itself. Prompts and tool results enter $s_t$ but carry no loss. And the
+teacher has to judge states it would never reach on its own, such as those
+after a student's mistake.
+
+\begin{algorithm}[t]
+\caption{One training step. Stages differ only in the environment, the
+group size $G$, and $(c_T, c_R)$.}
+\label{alg:step}
+\begin{algorithmic}[1]
+\Require student $\pis$ (LoRA), frozen teacher $\pit$, environment,
+  prompts $x_1,\dots,x_P$
+\For{each prompt $x_p$}
+  \State sample $G$ episodes with $\pis$ (vLLM), running every tool call and
+    appending its result
+  \State $R_{p,i}\gets$ task reward of episode $i$;\quad
+    $\hat A_{p,i}\gets(R_{p,i}-\bar R_p)/\sigma_p$
+    \Comment{0 when $G=1$}
+\EndFor
+\State teacher forward pass over every episode:
+  $k_t\gets\log\pis(y_t\mid s_t)-\log\pit(y_t\mid s_t)$
+\State $A_t\gets c_R\,\hat A_{p,i}-c_T\,k_t$ for every student token $t$ of
+  episode $(p,i)$
+\State one AdamW step on
+  $\ell(\theta)=-\frac{1}{N}\sum_t A_t\log\pis(y_t\mid s_t)$
+  \Comment{$N$ student tokens}
+\end{algorithmic}
+\end{algorithm}
+
+\section{Training setup}
+\label{sec:setup}
+
+\paragraph{Models and hardware.}
+Table~\ref{tab:models} lists the two teacher--student pairs. Qwen3.5
+\citep{qwen2026qwen35} interleaves Gated DeltaNet layers
+\citep{yang2025gateddeltanet}, a form of linear attention, with gated
+attention layers, three to one. Both runs use non-thinking mode, LoRA \citep{hu2022lora} of rank 32 and $\alpha=32$ on
+every linear layer of the student's language model (the Qwen3.5 checkpoints
+also carry a vision tower, which these text-only tasks leave unused), and
+one Colab A100-SXM4-80GB. The trainer is TRL's \texttt{GRPOTrainer}
+\citep{vonwerra2020trl} with vLLM generation \citep{kwon2023vllm}. Our
+subclass computes $k_t$ after each rollout batch and replaces GRPO's
+advantage with \eqref{eq:advantage}; sampling, tool execution, masking and
+the loss are TRL's.
+
+\begin{table}[t]
+\centering\small
+\caption{The two teacher--student pairs. Everything else is identical.}
+\label{tab:models}
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & Qwen3 run & Qwen3.5 run \\
+\midrule
+Teacher (frozen, bf16) & Qwen3-8B & Qwen3.5-9B (language model only) \\
+Student & Qwen3-1.7B & Qwen3.5-2B \\
+Student layers & 28, all attention & 18 Gated DeltaNet + 6 gated attention \\
+Vocabulary & 151{,}936 & 248{,}320 \\
+Tool-call syntax & JSON & XML \\
+Trainable LoRA parameters & 34.9\,M & 33.6\,M \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Curriculum.}
+Table~\ref{tab:stages} lists the four stages. Stage~1 samples GSM8K questions
+\citep{cobbe2021gsm8k}; their reference answers never enter the loss.
+Stage~2's word problems have numbers large enough (a five-digit
+times a four-digit number, say) that arithmetic in prose often goes wrong.
+Stages~3 and~4 offer three tools on every task: a calculator, read-only SQL
+over a randomly generated company database, and JMESPath queries over a
+randomly generated store document. Their tasks need one tool (45\%), two
+tools combined (40\%), or none (15\%, to be answered directly). The tasks of
+stages 2--4 are generated, with different random seeds for training and
+evaluation. Each stage keeps training the previous stage's LoRA adapter.
+
+\begin{table}[t]
+\centering\small
+\caption{The curriculum, identical in both runs. Tokens: limit on the whole
+episode after the prompt, tool results included. Batch: episodes per step,
+prompts $\times$ group size $G$.}
+\label{tab:stages}
+\begin{tabular}{@{}lllcrrrcc@{}}
+\toprule
+Stage & Tasks & Tools & Turns & Tokens & Steps & Batch & LR
+  & $(c_T, c_R)$ \\
+\midrule
+1 & GSM8K & none & 1 & 1{,}024 & 200 & $32\times1$ & $10^{-4}$ & (1, 0) \\
+2 & big-number arithmetic & calculator & 4 & 2{,}048 & 150 & $32\times1$
+  & $10^{-4}$ & (1, 0) \\
+3 & one, two or no tools & all three & 6 & 3{,}072 & 200 & $32\times1$
+  & $10^{-4}$ & (1, 0) \\
+4 & as stage 3 & all three & 6 & 3{,}072 & 150 & $16\times4$
+  & $5\cdot10^{-5}$ & (1, 1) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Optimization and scoring.}
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+\item Every optimizer step uses a fresh batch sampled by the current
+  weights, so the PPO ratio is one, clipping ($\epsilon=0.2$ below, 0.28
+  above) never binds, and the update is the gradient of \eqref{eq:loss},
+  averaged over all student tokens of the batch (TRL's DAPO loss;
+  \citealp{yu2025dapo}).
+\item AdamW with a constant learning rate after 5 warm-up steps, gradient
+  norm clipped at 1, no weight decay; micro-batches of 8 episodes with
+  gradient checkpointing. A rate of $10^{-4}$ is about ten times a full
+  fine-tuning rate, as recommended for LoRA \citep{schulman2025lora}.
+\item Sampling: vLLM on the training GPU (30\% of its memory), temperature
+  1, top-$p$ 1.
+\item Scoring: one bf16 teacher forward pass per episode, through a fused
+  output layer that returns the log-probabilities of the sampled tokens
+  without materializing the full logits. The student's log-probabilities in
+  $k_t$ are recomputed by the trainer, not taken from vLLM.
+\item vLLM's kernels give slightly different log-probabilities from the
+  trainer's. TRL weights each episode by
+  $\exp\sum_t(\log\pis-\log\pi_{\text{vLLM}})$ and drops episodes whose
+  weight exceeds 3; the mean weight per stage was 0.95--1.00.
+\item Reward (stage-4 training, all evaluations): 1 if the last
+  \verb|\boxed{}| of the final answer equals the reference (numerically, to
+  $10^{-6}$), else 0; also 0 if the episode ran out of tokens or was still
+  calling tools at the turn limit.
+\item Evaluation every 25 steps on 256 held-out tasks (GSM8K test questions
+  in stage~1), one sample per task at temperature 1, since TRL has no greedy
+  evaluation.
+\end{itemize}
+
+\section{Results}
+\label{sec:results}
+
+Table~\ref{tab:results} gives the first and last evaluation of every stage;
+Figure~\ref{fig:curves} shows all of them.
+
+\begin{table}[t]
+\centering\small
+\caption{Evaluation at the start and end of each stage (256 held-out tasks,
+temperature 1), and wall-clock time including evaluation.}
+\label{tab:results}
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & \multicolumn{3}{c}{Qwen3-8B $\to$ Qwen3-1.7B}
+ & \multicolumn{3}{c}{Qwen3.5-9B $\to$ Qwen3.5-2B} \\
+\cmidrule(lr){2-4}\cmidrule(l){5-7}
+Stage & Teacher KL & Reward & Time & Teacher KL & Reward & Time \\
+\midrule
+1. GSM8K & 0.229 $\to$ 0.136 & 0.809 $\to$ 0.836 & 45 min
+  & 0.218 $\to$ 0.168 & 0.656 $\to$ 0.781 & 85 min \\
+2. Calculator & 0.328 $\to$ 0.057 & 0.473 $\to$ 1.000 & 18 min
+  & 0.108 $\to$ 0.047 & 0.645 $\to$ 0.902 & 103 min \\
+3. Three tools & 0.378 $\to$ 0.068 & 0.660 $\to$ 0.746 & 52 min
+  & 0.163 $\to$ 0.034 & 0.754 $\to$ 0.957 & 109 min \\
+4. + Task reward & 0.065 $\to$ 0.067 & 0.754 $\to$ 0.758 & 55 min
+  & 0.034 $\to$ 0.025 & 0.945 $\to$ 0.953 & 130 min \\
+\midrule
+Total & & & 2.8 h & & & 7.1 h \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\input{curves}
+\caption{Evaluations during the four stages, run back to back. Dashed lines
+separate the stages; each stage opens with an evaluation of the previous
+stage's weights on the new tasks. (a)~Mean of $k_t$ over student tokens.
+(b)~Share of the 256 held-out tasks solved. (c)~Mean episode length after
+the prompt (log scale). (d)~Mean entropy of the student's next-token
+distribution (log scale).}
+\label{fig:curves}
+\end{figure}
+
+\paragraph{Distillation does what the derivation says.}
+Teacher KL falls in every distillation stage, by 23--83\%, and mostly within
+the first 25--50 steps (Qwen3, stage~2: from 0.328 to 0.049 by step 25).
+
+\paragraph{Task success follows without a reward.}
+Stages 1--3 never see the reward, yet the evaluation reward rises in each:
+by 0.03 and 0.13 on GSM8K, 0.53 and 0.26 on calculator tasks, 0.09 and 0.20
+on three-tool tasks (Qwen3 and Qwen3.5). The students take up their
+teachers' tool habits. In the first batch of stage~2, the Qwen3.5 student
+called the calculator 4 times in 32 episodes and did the rest of the
+arithmetic in prose; over the last 50 steps it called it 1.55 times per
+episode (Qwen3: 15 times in 32 episodes, then 1.16 per episode). In
+stage~3, the share of executed tool calls that returned an error fell from
+21\% to 4\% (first against last five steps; Qwen3: from 14\% to 7\%).
+
+\paragraph{Length, not accuracy, holds Qwen3.5 back.}
+On GSM8K, 10--18\% of the Qwen3.5 student's answers run past the
+1{,}024-token limit and score zero. They are not loops: after an awkward
+intermediate result, such as a fractional count, the model second-guesses
+itself. Of the answers that finish, 91\% are right at the end of stage~1
+(Qwen3: 84\%). In stage~2, about 70\% of its failed training episodes in the
+last 50 steps used all four turns re-checking a result with more calculator
+calls.
+
+\paragraph{The task reward adds nothing measurable.}
+In stage~4 the evaluation reward moves from 0.754 to 0.758 and from 0.945 to
+0.953. A 256-task estimate near 0.95 has a standard error of 0.014, and the
+same Qwen3.5 weights scored 0.957 at the end of stage~3.
+Equation~\eqref{eq:signal} explains why. Only 1.5\% (Qwen3) and 10.9\%
+(Qwen3.5) of the groups had any reward variance. If the four outcomes of a
+prompt were independent draws at the mean success rate (0.80 and 0.955),
+\eqref{eq:signal} would predict 59\% and 17\%. The Qwen3 student is far more
+deterministic than that: when it fails a prompt, it fails all four samples.
+Its entropy collapsed in stage~2 (from 0.14 to 0.002 nats per token) and
+stayed below 0.05; the Qwen3.5 student stayed at 0.13--0.16 from stage~2 on. Reverse
+KL predicts this: at its minimum the student's next-token distribution,
+entropy included, equals the teacher's, so a confident teacher makes a
+confident student (we did not measure the teachers' entropy), and a
+confident student gives GRPO nothing to compare. Stage~5 of the Qwen3 run,
+GRPO alone with $G=8$ and no teacher, confirmed it: after the first batch
+every group had zero variance, the loss and gradient were exactly zero, and
+we stopped the run at about step~20.
+
+\paragraph{Cost.}
+The Qwen3.5 run took 7.1 hours against 2.8 (about 50 Colab compute units
+against 23). A token costs the same in both runs: in stage~4, a step takes
+0.17 and 0.16\,s per token of mean episode length. But the Qwen3.5 student
+writes episodes 2--5 times longer, with a sentence of explanation around
+every tool call (stage~2: 371 against 65 tokens; stage~3: 240 against 113).
+
+\section{Takeaways}
+
+\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=2pt]
+\item \textbf{On-policy distillation is the workhorse.} From prompts alone,
+  with no labels and no reward, a 1.7B or 2B student learns to use tools;
+  each distillation stage took under two hours on one A100, and most of the
+  gain came in its first 50 steps.
+\item \textbf{RL needs tasks at the edge of the student's ability.} GRPO
+  learns only from prompts whose outcome varies across samples, which needs
+  per-prompt success rates away from 0 and 1 and randomness in the student's
+  answers. Distillation removes the randomness, and our tasks are mostly
+  solved. Harder and more varied tasks, larger groups or a higher sampling
+  temperature are the levers.
+\item \textbf{Budgets are per model.} With the same configs, the Qwen3.5
+  student wrote episodes 2--5 times longer: length and turn limits that never
+  bound for Qwen3 cost it accuracy, and its run took 2.5 times the GPU time.
+\item \textbf{The tokenizer decides who can teach.} The teacher must share
+  the student's vocabulary token for token.
+\end{enumerate}
+
+\paragraph{Reproduction.}
+Stages 1--4 run with
+\begin{center}
+\texttt{BACKEND=trl EXTRA=-{}-use\_vllm scripts/run\_stages.sh a100 1 4}
+\end{center}
+The trainer is \path{opd/trl_train.py} and the configs are in
+\path{opd/configs/}. Every logged metric, sampled episode and adapter is in
+\path{results/trl/a100/} (Qwen3) and \path{results/trl/a100-qwen3.5/}
+(Qwen3.5).
+
+\begin{thebibliography}{99}
+\setlength{\itemsep}{1pt}
+\small
+
+\bibitem[Agarwal et~al.(2024)]{agarwal2024gkd}
+R.~Agarwal, N.~Vieillard, Y.~Zhou, P.~Stanczyk, S.~Ramos, M.~Geist, and
+O.~Bachem.
+\newblock On-policy distillation of language models: Learning from
+self-generated mistakes.
+\newblock In \emph{ICLR}, 2024.
+
+\bibitem[Cobbe et~al.(2021)]{cobbe2021gsm8k}
+K.~Cobbe, V.~Kosaraju, M.~Bavarian, M.~Chen, H.~Jun, L.~Kaiser, M.~Plappert,
+J.~Tworek, J.~Hilton, R.~Nakano, C.~Hesse, and J.~Schulman.
+\newblock Training verifiers to solve math word problems.
+\newblock arXiv:2110.14168, 2021.
+
+\bibitem[Gu et~al.(2024)]{gu2024minillm}
+Y.~Gu, L.~Dong, F.~Wei, and M.~Huang.
+\newblock {MiniLLM}: Knowledge distillation of large language models.
+\newblock In \emph{ICLR}, 2024.
+
+\bibitem[Hu et~al.(2022)]{hu2022lora}
+E.~J. Hu, Y.~Shen, P.~Wallis, Z.~Allen-Zhu, Y.~Li, S.~Wang, L.~Wang, and
+W.~Chen.
+\newblock {LoRA}: Low-rank adaptation of large language models.
+\newblock In \emph{ICLR}, 2022.
+
+\bibitem[Kim and Rush(2016)]{kim2016seqkd}
+Y.~Kim and A.~M. Rush.
+\newblock Sequence-level knowledge distillation.
+\newblock In \emph{EMNLP}, 2016.
+
+\bibitem[Kwon et~al.(2023)]{kwon2023vllm}
+W.~Kwon, Z.~Li, S.~Zhuang, Y.~Sheng, L.~Zheng, C.~H. Yu, J.~E. Gonzalez,
+H.~Zhang, and I.~Stoica.
+\newblock Efficient memory management for large language model serving with
+{PagedAttention}.
+\newblock In \emph{SOSP}, 2023.
+
+\bibitem[Lu and Thinking Machines Lab(2025)]{lu2025onpolicy}
+K.~Lu and Thinking Machines Lab.
+\newblock On-policy distillation.
+\newblock \emph{Thinking Machines Lab: Connectionism}, 2025.
+\newblock doi:10.64434/tml.20251026.
+
+\bibitem[Qwen Team(2026)]{qwen2026qwen35}
+Qwen Team.
+\newblock {Qwen3.5} model cards.
+\newblock Hugging Face, 2026.
+
+\bibitem[Ross and Bagnell(2010)]{ross2010efficient}
+S.~Ross and J.~A. Bagnell.
+\newblock Efficient reductions for imitation learning.
+\newblock In \emph{AISTATS}, 2010.
+
+\bibitem[Ross et~al.(2011)]{ross2011dagger}
+S.~Ross, G.~J. Gordon, and J.~A. Bagnell.
+\newblock A reduction of imitation learning and structured prediction to
+no-regret online learning.
+\newblock In \emph{AISTATS}, 2011.
+
+\bibitem[Schulman and Thinking Machines Lab(2025)]{schulman2025lora}
+J.~Schulman and Thinking Machines Lab.
+\newblock {LoRA} without regret.
+\newblock \emph{Thinking Machines Lab: Connectionism}, 2025.
+
+\bibitem[Shao et~al.(2024)]{shao2024deepseekmath}
+Z.~Shao, P.~Wang, Q.~Zhu, R.~Xu, J.~Song, X.~Bi, H.~Zhang, M.~Zhang,
+Y.~K. Li, Y.~Wu, and D.~Guo.
+\newblock {DeepSeekMath}: Pushing the limits of mathematical reasoning in open
+language models.
+\newblock arXiv:2402.03300, 2024.
+
+\bibitem[von Werra et~al.(2020)]{vonwerra2020trl}
+L.~von Werra, Y.~Belkada, L.~Tunstall, E.~Beeching, T.~Thrush, N.~Lambert,
+S.~Huang, K.~Rasul, and Q.~Gallou{\'e}dec.
+\newblock {TRL}: Transformer reinforcement learning.
+\newblock \url{https://github.com/huggingface/trl}, 2020.
+
+\bibitem[Williams(1992)]{williams1992reinforce}
+R.~J. Williams.
+\newblock Simple statistical gradient-following algorithms for connectionist
+reinforcement learning.
+\newblock \emph{Machine Learning}, 8:229--256, 1992.
+
+\bibitem[Yang et~al.(2025a)]{yang2025qwen3}
+A.~Yang et~al.
+\newblock {Qwen3} technical report.
+\newblock arXiv:2505.09388, 2025a.
+
+\bibitem[Yang et~al.(2025b)]{yang2025gateddeltanet}
+S.~Yang, J.~Kautz, and A.~Hatamizadeh.
+\newblock Gated delta networks: Improving {Mamba2} with delta rule.
+\newblock In \emph{ICLR}, 2025b.
+
+\bibitem[Yu et~al.(2025)]{yu2025dapo}
+Q.~Yu et~al.
+\newblock {DAPO}: An open-source {LLM} reinforcement learning system at
+scale.
+\newblock arXiv:2503.14476, 2025.
+
+\end{thebibliography}
+
+\end{document}

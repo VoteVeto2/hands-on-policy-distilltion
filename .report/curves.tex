@@ -1,0 +1,51 @@
+% Evaluation curves of both runs, from data/*.dat (written by make_data.py).
+% Shared by both reports: each defines the label macros \Lbl... before \input.
+\pgfplotsset{
+  run3/.style={color=blue!70!black, mark=*, mark size=1.1pt, thick},
+  run35/.style={color=orange!85!black, mark=square*, mark size=1.1pt, thick},
+}
+% Stage numbers centred over each stage (x = 100, 275, 450, 625 of 700).
+\newcommand{\stagenumbers}{%
+  \node[font=\scriptsize, text=gray, anchor=north] at (rel axis cs:0.1429,1) {1};
+  \node[font=\scriptsize, text=gray, anchor=north] at (rel axis cs:0.3929,1) {2};
+  \node[font=\scriptsize, text=gray, anchor=north] at (rel axis cs:0.6429,1) {3};
+  \node[font=\scriptsize, text=gray, anchor=north] at (rel axis cs:0.8929,1) {4};}
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={group size=2 by 2, horizontal sep=1.5cm, vertical sep=1.45cm},
+  width=0.5\textwidth, height=4.6cm,
+  xmin=0, xmax=700, xtick={0,200,350,550,700},
+  xmajorgrids, major grid style={dashed, gray!50},
+  unbounded coords=jump,
+  tick label style={font=\scriptsize},
+  title style={font=\small, yshift=-1ex},
+  label style={font=\small},
+]
+\nextgroupplot[title={(a) \LblKL}, ymin=0, ymax=0.44,
+  legend to name=curveslegend, legend columns=2,
+  legend style={font=\small, draw=none,
+    /tikz/every even column/.append style={column sep=1.5em}}]
+\addplot[run3] table[x=step, y=kl] {data/qwen3.dat};
+\addplot[run35] table[x=step, y=kl] {data/qwen35.dat};
+\legend{\LblQwenThree, \LblQwenThreeFive}
+\stagenumbers
+
+\nextgroupplot[title={(b) \LblReward}, ymin=0.4, ymax=1.12]
+\addplot[run3] table[x=step, y=reward] {data/qwen3.dat};
+\addplot[run35] table[x=step, y=reward] {data/qwen35.dat};
+\stagenumbers
+
+\nextgroupplot[title={(c) \LblLength}, ymode=log, ymin=40, ymax=2000,
+  xlabel={\LblStep}]
+\addplot[run3] table[x=step, y=length] {data/qwen3.dat};
+\addplot[run35] table[x=step, y=length] {data/qwen35.dat};
+
+\nextgroupplot[title={(d) \LblEntropy}, ymode=log, ymin=5e-4, ymax=1,
+  xlabel={\LblStep}]
+\addplot[run3] table[x=step, y=entropy] {data/qwen3.dat};
+\addplot[run35] table[x=step, y=entropy] {data/qwen35.dat};
+\end{groupplot}
+\end{tikzpicture}
+
+\smallskip
+\ref*{curveslegend}
