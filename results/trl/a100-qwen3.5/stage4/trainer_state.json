@@ -5503,6 +5503,15 @@
       "eval_tools/call_frequency": 2.2578125,
       "eval_tools/failure_frequency": 0.03707916347775608,
       "step": 150
+    },
+    {
+      "epoch": 1.0,
+      "step": 150,
+      "total_flos": 0.0,
+      "train_loss": 0.05067726128657038,
+      "train_runtime": 7815.4069,
+      "train_samples_per_second": 1.228,
+      "train_steps_per_second": 0.019
     }
   ],
   "logging_steps": 1,
