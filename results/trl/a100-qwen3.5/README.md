@@ -32,7 +32,7 @@ Stage 5 (GRPO without the teacher) was not rerun.
   episode) and episodes shrink from 1011 to 371 tokens (Qwen3: 232 → 65).
   Of the 129 failed training episodes in the last 50 steps, 89 used up the
   4 turns re-checking a result with more calls before giving an answer.
-- Stage 3: failed tool calls drop from 21% to 3% of calls (Qwen3: 12% → 7%).
+- Stage 3: failed tool calls drop from 21% to 4% of calls (Qwen3: 14% → 7%).
 - Time: a token costs the same in both runs; Qwen3.5's episodes are 2–5x
   longer, with step-by-step explanations around every tool call.
 
